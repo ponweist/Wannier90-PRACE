@@ -554,7 +554,9 @@ contains
   end subroutine utility_diagonalize
 
   !===========================================================!
-  function utility_rotate(mat,rot,dim)
+  !FIXME: Delete this function and consistently use subroutine
+  !       utility_rotate
+  function utility_rotate_old(mat,rot,dim)
     !==========================================================!
     !                                                           !
     ! Rotates the dim x dim matrix 'mat' according to           !
@@ -565,13 +567,37 @@ contains
     use w90_constants, only : dp
 
     integer          :: dim
-    complex(kind=dp) :: utility_rotate(dim,dim)
+    complex(kind=dp) :: utility_rotate_old(dim,dim)
     complex(kind=dp) :: mat(dim,dim)
     complex(kind=dp) :: rot(dim,dim)
 
-    utility_rotate=matmul(matmul(transpose(conjg(rot)),mat),rot)
+    utility_rotate_old=matmul(matmul(transpose(conjg(rot)),mat),rot)
 
-  end function utility_rotate
+  end function utility_rotate_old
+
+  !===========================================================!
+  subroutine utility_rotate(mat,rot,dim)
+    !==========================================================!
+    !                                                           !
+    ! Rotates the dim x dim matrix 'mat' according to           !
+    ! (rot)^dagger.mat.rot, where 'rot' is a unitary matrix     !
+    ! The matrix 'mat' is overwritten.                          !
+    !                                                           !
+    !===========================================================!
+
+    use w90_constants, only : dp
+    use blas95, only : gemm
+
+    integer, intent(in)             :: dim
+    complex(kind=dp), intent(inout) :: mat(dim,dim)
+    complex(kind=dp), intent(in)    :: rot(dim,dim)
+    complex(kind=dp)                :: tmp(dim,dim)
+
+    call gemm(mat, rot, tmp, 'C','N')
+    call gemm(tmp, rot, mat, 'C','N')
+
+  end subroutine utility_rotate
+
 
   !===========================================================!
   function utility_matmul_diag(mat1,mat2,dim)
