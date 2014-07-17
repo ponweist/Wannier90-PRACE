@@ -19,7 +19,7 @@ module w90_wan_ham
 
     use w90_constants, only      : dp,cmplx_0
     use w90_parameters, only     : num_wann
-    use w90_utility, only        : utility_rotate
+    use w90_utility, only        : utility_rotate_old
     use w90_postw90_common, only : get_occ
 
     ! Arguments
@@ -37,7 +37,7 @@ module w90_wan_ham
     call get_occ(eig,occ,ef)
 
     allocate(delHH_a_bar(num_wann,num_wann))
-    delHH_a_bar=utility_rotate(delHH_a,UU,num_wann)
+    delHH_a_bar=utility_rotate_old(delHH_a,UU,num_wann)
     do m=1,num_wann
        do n=1,num_wann
           if(occ(n)>0.999_dp.and.occ(m)<0.001_dp) then
@@ -65,7 +65,7 @@ module w90_wan_ham
 
     use w90_constants, only     : dp,cmplx_0
     use w90_parameters, only    : num_wann
-    use w90_utility, only       : utility_rotate
+    use w90_utility, only       : utility_rotate_old
 
     ! Arguments
     !
@@ -80,7 +80,7 @@ module w90_wan_ham
     allocate(delHH_bar_i(num_wann,num_wann))
     D_h=cmplx_0
     do i=1,3
-       delHH_bar_i(:,:)=utility_rotate(delHH(:,:,i),UU,num_wann)
+       delHH_bar_i(:,:)=utility_rotate_old(delHH(:,:,i),UU,num_wann)
        do m=1,num_wann
           do n=1,num_wann
              if(n==m .or. abs(eig(m)-eig(n))<1.0e-7_dp) cycle
@@ -102,7 +102,7 @@ module w90_wan_ham
 
     use w90_constants, only  : dp,cmplx_0,cmplx_i
     use w90_parameters, only : num_wann,nfermi,fermi_energy_list
-    use w90_utility, only    : utility_rotate
+    use w90_utility, only    : utility_rotate_old
 
     complex(kind=dp), dimension(:,:), intent(in)    :: delHH
     complex(kind=dp), dimension(:,:), intent(in)    :: UU
@@ -113,7 +113,7 @@ module w90_wan_ham
     integer                       :: n,m,if
 
     allocate(delHH_bar(num_wann,num_wann))
-    delHH_bar=utility_rotate(delHH,UU,num_wann)
+    delHH_bar=utility_rotate_old(delHH,UU,num_wann)
     do if=1,nfermi
        do m=1,num_wann
           do n=1,num_wann
@@ -128,7 +128,7 @@ module w90_wan_ham
     end do
     do if=1,nfermi
        JJp_list(:,:,if)=&
-            utility_rotate(JJp_list(:,:,if),conjg(transpose(UU)),num_wann)
+            utility_rotate_old(JJp_list(:,:,if),conjg(transpose(UU)),num_wann)
     enddo
 
   end subroutine get_JJp_list
@@ -144,7 +144,7 @@ module w90_wan_ham
 
     use w90_constants, only  : dp,cmplx_0,cmplx_i
     use w90_parameters, only : num_wann,nfermi,fermi_energy_list
-    use w90_utility, only    : utility_rotate
+    use w90_utility, only    : utility_rotate_old
 
     complex(kind=dp), dimension(:,:), intent(in)   :: delHH
     complex(kind=dp), dimension(:,:), intent(in)   :: UU
@@ -155,7 +155,7 @@ module w90_wan_ham
     integer                       :: n,m,if
 
     allocate(delHH_bar(num_wann,num_wann))
-    delHH_bar=utility_rotate(delHH,UU,num_wann)
+    delHH_bar=utility_rotate_old(delHH,UU,num_wann)
     do if=1,nfermi
        do m=1,num_wann
           do n=1,num_wann
@@ -170,7 +170,7 @@ module w90_wan_ham
     end do
     do if=1,nfermi
        JJm_list(:,:,if)=&
-            utility_rotate(JJm_list(:,:,if),conjg(transpose(UU)),num_wann)
+            utility_rotate_old(JJm_list(:,:,if),conjg(transpose(UU)),num_wann)
     enddo
 
   end subroutine get_JJm_list
@@ -226,7 +226,7 @@ module w90_wan_ham
   !==========================!
 
     use w90_constants, only  : dp,cmplx_0,cmplx_i
-    use w90_utility, only    : utility_diagonalize,utility_rotate,&
+    use w90_utility, only    : utility_diagonalize,utility_rotate_old,&
                                utility_rotate_diag
     use w90_parameters, only : num_wann,use_degen_pert,degen_thr
 
@@ -248,7 +248,7 @@ module w90_wan_ham
     
     if(use_degen_pert) then
        
-       delHH_bar_a=utility_rotate(delHH_a,UU,num_wann)
+       delHH_bar_a=utility_rotate_old(delHH_a,UU,num_wann)
        
        ! Assuming that the energy eigenvalues are stored in eig(:) in
        ! increasing order (diff >= 0)

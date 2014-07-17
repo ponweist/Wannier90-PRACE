@@ -32,6 +32,7 @@ module w90_utility
   public :: utility_zgemm
   public :: utility_translate_home
   public :: utility_rotate
+  public :: utility_rotate_old
   public :: utility_matmul_diag
   public :: utility_rotate_diag
   public :: utility_commutator_diag
