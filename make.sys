@@ -10,8 +10,8 @@ include /home/hpc/pr87xo/lu43nel3/shared_folder/espresso-5.0.2/make.sys
 F90=$(MPIF90)
 COMMS=mpi
 MPIF90=mpif90
-FCOPTS=-g
-LDOPTS=
+FCOPTS=-g -O2
+LDOPTS=-O2
 
 ## here we use sed to re-write the library paths. This is only relevant
 ## if we are using the Q-E internal lapack and blas. Q-E refers to them

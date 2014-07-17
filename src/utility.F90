@@ -577,25 +577,41 @@ contains
   end function utility_rotate_old
 
   !===========================================================!
-  subroutine utility_rotate(mat,rot,dim)
-    !==========================================================!
-    !                                                           !
-    ! Rotates the dim x dim matrix 'mat' according to           !
-    ! (rot)^dagger.mat.rot, where 'rot' is a unitary matrix     !
-    ! The matrix 'mat' is overwritten.                          !
-    !                                                           !
-    !===========================================================!
+  subroutine utility_rotate(mat,rot,N,reverse)
+    !=============================================================!
+    !                                                             !
+    ! Rotates the N x N matrix 'mat' according to                 !
+    ! * (rot)^dagger.mat.rot (reverse = .true. or not present) OR !
+    ! * rot.mat.(rot)^dagger (reverse = .false.),                 !
+    ! where 'rot' is a unitary matrix.                            !
+    ! The matrix 'mat' is overwritten.                            !
+    !                                                             !
+    !=============================================================!
 
     use w90_constants, only : dp
     use blas95, only : gemm
 
-    integer, intent(in)             :: dim
-    complex(kind=dp), intent(inout) :: mat(dim,dim)
-    complex(kind=dp), intent(in)    :: rot(dim,dim)
-    complex(kind=dp)                :: tmp(dim,dim)
+    integer, intent(in)             :: N
+    logical, optional, intent(in)   :: reverse
+    complex(kind=dp), intent(inout) :: mat(N,N)
+    complex(kind=dp), intent(in)    :: rot(N,N)
+    complex(kind=dp)                :: tmp(N,N)
+    logical                         :: rev
 
-    call gemm(mat, rot, tmp, 'C','N')
-    call gemm(tmp, rot, mat, 'C','N')
+    if(.not. present(reverse)) then
+       rev = .false.
+    else
+       rev = reverse
+    end if
+     
+
+    if(rev) then
+       call gemm(rot, mat, tmp, 'N','C')
+       call gemm(rot, tmp, mat, 'N','C')
+    else 
+       call gemm(mat, rot, tmp, 'C','N')
+       call gemm(tmp, rot, mat, 'C','N')
+    end if
 
   end subroutine utility_rotate
 
