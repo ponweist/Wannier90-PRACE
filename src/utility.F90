@@ -578,15 +578,15 @@ contains
 
   !===========================================================!
   subroutine utility_rotate(mat,rot,N,reverse)
-    !=============================================================!
-    !                                                             !
-    ! Rotates the N x N matrix 'mat' according to                 !
-    ! * (rot)^dagger.mat.rot (reverse = .true. or not present) OR !
-    ! * rot.mat.(rot)^dagger (reverse = .false.),                 !
-    ! where 'rot' is a unitary matrix.                            !
-    ! The matrix 'mat' is overwritten.                            !
-    !                                                             !
-    !=============================================================!
+    !==============================================================!
+    !                                                              !
+    ! Rotates the N x N matrix 'mat' according to                  !
+    ! * (rot)^dagger.mat.rot (reverse = .false. or not present) OR !
+    ! * rot.mat.(rot)^dagger (reverse = .true.),                   !
+    ! where 'rot' is a unitary matrix.                             !
+    ! The matrix 'mat' is overwritten.                             !
+    !                                                              !
+    !==============================================================!
 
     use w90_constants, only : dp
     use blas95, only : gemm
