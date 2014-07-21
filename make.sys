@@ -24,6 +24,7 @@ LDOPTS=-O2
 # Intel mkl libraries. Set LIBPATH if not in default path
 #========================================================
 
+MKLROOT ?= $(MKL_BASE)
 BLAS_INCLUDE = $(MKLROOT)/include
 LIBS   = $(MKLROOT)/lib/intel64/libmkl_blas95_lp64.a -Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_core.a $(MKLROOT)/lib/intel64/libmkl_sequential.a -Wl,--end-group -lpthread -lm 
 
