@@ -109,31 +109,30 @@ module w90_wan_ham
     complex(kind=dp), dimension(:,:,:), intent(out) :: JJp_list
     complex(kind=dp), dimension(:,:,:), intent(out) :: JJm_list
 
-    real(kind=dp), allocatable, dimension(:,:)        :: d_eig
     integer                       :: n,m,ife
-
-    allocate(d_eig(num_wann,nfermi))
-    forall(ife=1:nfermi)
-       d_eig(:,ife) = eig - fermi_energy_list(ife)
-    end forall
+    real(kind=dp)                 :: fe
 
     call utility_rotate(delHH,UU,num_wann)
-
-    JJp_list = cmplx_0
-    JJm_list = cmplx_0
-    forall(ife=1:nfermi, m=1:num_wann, n=1:num_wann, &
-           d_eig(ife,n)>0.0_dp .and. d_eig(ife,m)<0.0_dp)
-       JJp_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
-    end forall
-    forall(ife=1:nfermi, m=1:num_wann, n=1:num_wann, &
-           d_eig(ife,m)>0.0_dp .and. d_eig(ife,n)<0.0_dp)
-       JJm_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
-    end forall
-
     do ife=1,nfermi
+       fe = fermi_energy_list(ife)
+       do m=1,num_wann
+          do n=1,num_wann
+             if(eig(n)>fe .and. eig(m)<fe) then
+                JJp_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
+             else
+                JJp_list(n,m,ife)=cmplx_0
+             end if
+
+             if(eig(m)>fe .and. eig(n)<fe) then
+                JJm_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
+             else
+                JJm_list(n,m,ife)=cmplx_0
+             end if
+          enddo
+       end do
        call utility_rotate(JJp_list(:,:,ife),UU,num_wann,reverse=.true.)
        call utility_rotate(JJm_list(:,:,ife),UU,num_wann,reverse=.true.)
-    enddo
+    end do
 
   end subroutine get_JJp_JJm_list
 
