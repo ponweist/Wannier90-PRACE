@@ -1213,6 +1213,7 @@ module w90_get_oper
   !                                                          !
   !==========================================================!
 
+    use blas95, only             : gemm
     use w90_constants, only      : dp, cmplx_0
     use w90_postw90_common, only : v_matrix
     use w90_parameters, only     : num_wann
@@ -1221,27 +1222,22 @@ module w90_get_oper
 
     complex(kind=dp), dimension(:,:), intent(in)  :: S_o
     complex(kind=dp), dimension(:,:), intent(out) :: S
+    complex(kind=dp), dimension(:,:), allocatable :: tmp
 
     integer :: wm_a, wm_b, &
                m, n, i, ii, j, jj
 
-
     call get_win_min(ik_a, wm_a)
     call get_win_min(ik_b, wm_b)
-    S=cmplx_0
-    do m=1,num_wann
-      do n=1,num_wann
-        do i=1,ns_a
-          ii=wm_a+i-1
-          do j=1,ns_b
-            jj=wm_b+j-1
-            S(n,m)=S(n,m)&
-                 +conjg(v_matrix(i,n,ik_a))*S_o(ii,jj)&
-                 *v_matrix(j,m,ik_b)
-          end do
-        end do
-      end do
-    end do
+
+    allocate(tmp(ns_b,num_wann))
+
+    call gemm(S_o(wm_a:wm_a+ns_a-1, wm_b:wm_b+ns_b-1), &
+              v_matrix(1:ns_a, 1:num_wann, ik_a), &
+              tmp, 'C', 'N')
+    call gemm(tmp, &
+              v_matrix(1:ns_b,1:num_wann,ik_b), &
+              S, 'C', 'N')
   end subroutine get_gauge_overlap_matrix
 
 end module w90_get_oper
