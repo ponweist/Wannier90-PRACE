@@ -58,6 +58,1566 @@ module w90_get_oper
   !                   PUBLIC PROCEDURES                  ! 
   !======================================================!
 
+
+
+
+  !======================================================!
+  subroutine get_ahc_R
+  !======================================================!
+  !                                                      !
+  ! <0n|H|Rm>, in eV                                     !
+  ! (pwscf uses Ry, but pw2wannier90 converts to eV)     !
+  ! AA_a((R) = <0|r_a|R> is the Fourier transform        !
+  ! of the Berrry connection AA_a(k) = i<u|del_a u>      !
+  ! (a=x,y,z)                                            !
+  !                                                      !
+  !======================================================!
+
+    use w90_constants, only      : dp,cmplx_0,cmplx_i
+    use w90_io, only             : io_error,stdout,io_stopwatch,&
+                                   io_file_unit,seedname
+    use w90_parameters, only     : num_wann,ndimwin,num_kpts,num_bands,&
+                                   eigval,u_matrix,have_disentangled,&
+                                   wb,bk,timing_level,scissors_shift,&
+                                   num_valence_bands,effective_model,&
+                                   real_lattice, nntot, nnlist, nncell,transl_inv
+    use w90_postw90_common, only : nrpts,rpt_origin,v_matrix,ndegen,irvec,crvec
+    use w90_comms, only          : on_root,comms_bcast
+
+    implicit none
+
+    integer                       :: i,j,n,m,ii,ik,winmin_q,&
+                                     ir,io,idum,ivdum(3),ivdum_old(3)
+    integer                       :: jj, ik2,ik_prev, nn,inn,nnl,nnm,nnn,&
+                                     idir,ncount,nn_count,mmn_in,winmin_qb,&
+                                     nb_tmp,nkp_tmp,nntot_tmp,file_unit
+
+    integer, allocatable          :: num_states(:)
+    real(kind=dp)                 :: rdum_real,rdum_imag, &
+                                     m_real,m_imag,rdum1_real,rdum1_imag, &
+                                     rdum2_real,rdum2_imag,rdum3_real,rdum3_imag
+
+    complex(kind=dp), allocatable :: HH_q(:,:,:)
+    complex(kind=dp), allocatable :: AA_q(:,:,:,:)
+    complex(kind=dp), allocatable :: AA_q_diag(:,:)
+    complex(kind=dp), allocatable :: S_o(:,:)
+    complex(kind=dp), allocatable :: S(:,:)
+
+    logical                       :: new_ir, nn_found
+    character(len=60)             :: header
+
+    
+    !ivo
+    complex(kind=dp), allocatable :: sciss_q(:,:,:)
+    complex(kind=dp), allocatable :: sciss_R(:,:,:)
+    real(kind=dp)                 :: sciss_shift
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_ahc_R',1)
+
+!!!!! carfull here kslice kpath      if(.not.allocated(HH_R)) then
+
+       allocate(HH_R(num_wann,num_wann,nrpts))
+       allocate(AA_R(num_wann,num_wann,nrpts,3))
+
+    ! Real-space Hamiltonian H(R) and position matrix elements are read from file
+    !
+    if(effective_model) then
+       HH_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading real-space Hamiltonian from file '&
+               //trim(seedname)//'_HH_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_HH_R.dat',form='formatted',&
+               status='old',err=101)
+          read(file_unit,*) ! header
+          read(file_unit,*) idum ! num_wann
+          read(file_unit,*) idum ! nrpts
+          ir=1
+          new_ir=.true.
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,2F12.6)',iostat=io) ivdum(1:3),j,i,&
+                  rdum_real,rdum_imag
+             if(io<0) exit ! reached end of file
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error&
+                     ('Error in get_HH_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) then
+                   ir=ir+1
+                   new_ir=.true.
+                else
+                   new_ir=.false.
+                endif
+             endif
+             ivdum_old=ivdum
+             ! Note that the same (j,i,ir) may occur more than once in
+             ! the file seedname_HH_R.dat, hence the addition instead
+             ! of a simple equality. (This has to do with the way the
+             ! Berlijn effective Hamiltonian algorithm is
+             ! implemented.)
+             HH_R(j,i,ir)=HH_R(j,i,ir)+cmplx(rdum_real,rdum_imag,kind=dp)
+             if(new_ir) then
+                irvec(:,ir)=ivdum(:)
+                if(ivdum(1)==0.and.ivdum(2)==0.and.ivdum(3)==0) rpt_origin=ir
+             endif
+             n=n+1
+          enddo
+          close(file_unit)
+          if(ir/=nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_HH_R: inconsistent nrpts values')
+          endif
+
+          do ir=1,nrpts
+             crvec(:,ir)=matmul(transpose(real_lattice),irvec(:,ir))
+          end do
+
+          ndegen(:)=1 ! This is assumed when reading HH_R from file
+          !
+          ! TODO: Implement scissors in this case? Need to choose a
+          ! uniform k-mesh (the scissors correction is applied in
+          ! k-space) and then proceed as below, Fourier transforming
+          ! back to real space and adding to HH_R, Hopefully the
+          ! result converges (rapidly) with the k-mesh density, but
+          ! one should check
+          !
+          if(abs(scissors_shift)>1.0e-7_dp)&
+               call io_error(&
+               'Error in get_HH_R: scissors shift not implemented for '&
+               //'effective_model=T')
+       endif
+       call comms_bcast(HH_R(1,1,1),num_wann*num_wann*nrpts)
+       call comms_bcast(ndegen(1),nrpts)
+       call comms_bcast(irvec(1,1),3*nrpts)
+       call comms_bcast(crvec(1,1),3*nrpts)
+!
+!
+       AA_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading position matrix elements from file '&
+               //trim(seedname)//'_AA_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_AA_R.dat',form='formatted',&
+               status='old',err=102)
+          read(file_unit,*) ! header
+          ir=1
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,6F12.6)',iostat=io)&
+                  ivdum(1:3),j,i,rdum1_real,rdum1_imag,&
+                  rdum2_real,rdum2_imag,rdum3_real,rdum3_imag
+             if(io<0) exit
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error('Error in get_AA_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) ir=ir+1
+             endif
+             ivdum_old=ivdum
+             AA_R(j,i,ir,1)=AA_R(j,i,ir,1)+cmplx(rdum1_real,rdum1_imag,kind=dp)
+             AA_R(j,i,ir,2)=AA_R(j,i,ir,2)+cmplx(rdum2_real,rdum2_imag,kind=dp)
+             AA_R(j,i,ir,3)=AA_R(j,i,ir,3)+cmplx(rdum3_real,rdum3_imag,kind=dp)
+             n=n+1
+          enddo
+          close(file_unit)
+          ! AA_R may not contain the same number of R-vectors as HH_R
+          ! (e.g., if a diagonal representation of the position matrix
+          ! elements is used, but it cannot be larger
+          if(ir>nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_AA_R: inconsistent nrpts values')
+          endif
+       endif
+       call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+!
+!
+       if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_ahc_R',2)
+       return
+    endif
+
+    ! Everything below is only executed if effective_model==False (default)
+
+    ! Real-space Hamiltonian H(R) is calculated by Fourier
+    ! transforming H(q) defined on the ab-initio reciprocal mesh
+    !
+    ! Real-space position matrix elements calculated by Fourier
+    ! transforming overlap matrices defined on the ab-initio
+    ! reciprocal mesh
+    !
+    ! Do everything on root, broadcast AA_R at the end (smaller than S_o)
+    !
+
+if(on_root) then
+
+    allocate(HH_q(num_wann,num_wann,num_kpts))
+    allocate(num_states(num_kpts))
+
+    HH_q=cmplx_0
+    do ik=1,num_kpts
+       if(have_disentangled) then 
+          num_states(ik)=ndimwin(ik)
+       else
+          num_states(ik)=num_wann
+       endif
+
+       call get_win_min(ik,winmin_q)
+
+       do m=1,num_wann
+          do n=1,m
+             do i=1,num_states(ik)
+                ii=winmin_q+i-1
+                HH_q(n,m,ik)=HH_q(n,m,ik)&
+                 +conjg(v_matrix(i,n,ik))*eigval(ii,ik)&
+                 *v_matrix(i,m,ik)
+             enddo
+             HH_q(m,n,ik)=conjg(HH_q(n,m,ik))
+          enddo
+       enddo
+    enddo
+
+    call fourier_q_to_R(HH_q,HH_R)
+
+    ! Scissors correction for an insulator: shift conduction bands upwards by 
+    ! scissors_shift eV
+    !
+    if(num_valence_bands>0 .and. abs(scissors_shift)>1.0e-7_dp) then
+       allocate(sciss_R(num_wann,num_wann,nrpts))
+       allocate(sciss_q(num_wann,num_wann,num_kpts))
+       sciss_q=cmplx_0
+       do ik=1,num_kpts
+          do j=1,num_wann
+             do i=1,j
+                do m=1,num_valence_bands
+                   sciss_q(i,j,ik)=sciss_q(i,j,ik)-&
+                        conjg(u_matrix(m,i,ik))*u_matrix(m,j,ik)
+                enddo
+                sciss_q(j,i,ik)=conjg(sciss_q(i,j,ik))
+             enddo
+          enddo
+       enddo
+
+       call fourier_q_to_R(sciss_q,sciss_R)
+
+       do n=1,num_wann
+          sciss_R(n,n,rpt_origin)=sciss_R(n,n,rpt_origin)+1.0_dp
+       end do
+       sciss_R=sciss_R*scissors_shift
+       HH_R=HH_R+sciss_R
+
+       deallocate( sciss_q, sciss_R )
+
+    endif
+ 
+    deallocate( HH_q )
+
+endif !on_root
+
+    call comms_bcast( HH_R(1,1,1),num_wann*num_wann*nrpts )
+
+if(on_root) then
+
+    allocate(AA_q(num_wann,num_wann,num_kpts,3))
+    allocate(AA_q_diag(num_wann,3))
+    allocate(S_o(num_bands,num_bands))
+    allocate(S(num_wann,num_wann))
+
+       mmn_in=io_file_unit()
+       open(unit=mmn_in,file=trim(seedname)//'.mmn',&
+            form='formatted',status='old',action='read',err=103)
+       write(stdout,'(/a)',advance='no')&
+            ' Reading overlaps from '//trim(seedname)//'.mmn in get_AA_R   : '
+       ! Read the comment line (header)
+       read(mmn_in,'(a)',err=104,end=104) header
+       write(stdout,'(a)') trim(header)
+       ! Read the number of bands, k-points and nearest neighbours
+       read(mmn_in,*,err=104,end=104) nb_tmp,nkp_tmp,nntot_tmp
+       ! Checks
+       if (nb_tmp.ne.num_bands) &
+            call io_error(trim(seedname)//'.mmn has wrong number of bands')
+       if (nkp_tmp.ne.num_kpts) &
+            call io_error(trim(seedname)//'.mmn has wrong number of k-points')
+       if (nntot_tmp.ne.nntot) &
+            call io_error&
+            (trim(seedname)//'.mmn has wrong number of nearest neighbours')
+
+       AA_q=cmplx_0
+       ik_prev=0
+
+!!! Gosia    split these loops to make parallel over k-points outer
+       ! Composite loop over k-points ik (outer loop) and neighbors ik2 (inner)
+       do ncount=1,num_kpts*nntot
+          !
+          !Read from .mmn file the original overlap matrix
+          ! S_o=<u_ik|u_ik2> between ab initio eigenstates
+          !
+          read(mmn_in,*,err=104,end=104) ik,ik2,nnl,nnm,nnn
+          do n=1,num_bands
+             do m=1,num_bands
+                read(mmn_in,*,err=104,end=104) m_real,m_imag
+                S_o(m,n)=cmplx(m_real,m_imag,kind=dp)
+             enddo
+          enddo
+          !debug
+          !OK
+          !if(ik.ne.ik_prev .and.ik_prev.ne.0) then
+          !   if(nn_count.ne.nntot)&
+          !        write(stdout,*) 'something wrong in get_AA_R!'
+          !endif
+          !enddebug
+          if(ik.ne.ik_prev) nn_count=0
+          nn=0
+          nn_found=.false.
+          do inn = 1, nntot
+             if ((ik2.eq.nnlist(ik,inn)).and. &
+                  (nnl.eq.nncell(1,ik,inn)).and. &
+                  (nnm.eq.nncell(2,ik,inn)).and. &
+                  (nnn.eq.nncell(3,ik,inn)) ) then
+                if (.not.nn_found) then
+                   nn_found=.true.
+                   nn=inn
+                else
+                   call io_error('Error reading '//trim(seedname)//'.mmn.&
+                        & More than one matching nearest neighbour found')
+                endif
+             endif
+          end do
+          if (nn.eq.0) then
+             write(stdout,'(/a,i8,2i5,i4,2x,3i3)') &
+                  ' Error reading '//trim(seedname)//'.mmn:',&
+                  ncount,ik,ik2,nn,nnl,nnm,nnn
+             call io_error('Neighbour not found')
+          end if
+          nn_count=nn_count+1 !Check: can also be place after nn=inn (?)
+
+          ! Wannier-gauge overlap matrix S in the projected subspace
+          !
+          call get_win_min(ik,winmin_q)
+          call get_win_min(nnlist(ik,nn),winmin_qb)
+          S=cmplx_0
+          do m=1,num_wann
+             do n=1,num_wann
+                do i=1,num_states(ik)
+                   ii=winmin_q+i-1
+                   do j=1,num_states(nnlist(ik,nn))
+                      jj=winmin_qb+j-1
+                      S(n,m)=S(n,m)&
+                           +conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
+                           *v_matrix(j,m,nnlist(ik,nn))
+                   enddo
+                enddo
+             enddo
+          enddo
+
+          ! Berry connection matrix
+          ! Assuming all neighbors of a given point are read in sequence!
+          !
+          if(transl_inv .and. ik.ne.ik_prev) AA_q_diag(:,:)=cmplx_0
+          do idir=1,3
+             AA_q(:,:,ik,idir)=AA_q(:,:,ik,idir)&
+                  +cmplx_i*wb(nn)*bk(idir,nn,ik)*S(:,:)
+             if(transl_inv) then
+                !
+                ! Rewrite band-diagonal elements a la Eq.(31) of MV97
+                !
+                do i=1,num_wann
+                   AA_q_diag(i,idir)=AA_q_diag(i,idir)&
+                        -wb(nn)*bk(idir,nn,ik)*aimag(log(S(i,i)))
+                enddo
+             endif
+          end do
+          ! Assuming all neighbors of a given point are read in sequence!
+          if(nn_count==nntot) then !looped over all neighbors
+             do idir=1,3
+                if(transl_inv) then
+                   do n=1,num_wann
+                      AA_q(n,n,ik,idir)=AA_q_diag(n,idir)
+                   enddo
+                endif
+                !
+                ! Since Eq.(44) WYSV06 does not preserve the Hermiticity of the
+                ! Berry potential matrix, take Hermitean part (whether this
+                ! makes a difference or not for e.g. the AHC, depends on which
+                ! expression is used to evaluate the Berry curvature.
+                ! See comments in berry_wanint.F90)
+                !
+                AA_q(:,:,ik,idir)=&
+                     0.5_dp*(AA_q(:,:,ik,idir)&
+                     +conjg(transpose(AA_q(:,:,ik,idir))))
+             enddo
+          end if
+
+          ik_prev=ik
+       enddo !ncount
+
+       close(mmn_in)
+
+       call fourier_q_to_R(AA_q(:,:,:,1),AA_R(:,:,:,1))
+       call fourier_q_to_R(AA_q(:,:,:,2),AA_R(:,:,:,2))
+       call fourier_q_to_R(AA_q(:,:,:,3),AA_R(:,:,:,3))
+
+    deallocate( AA_q, AA_q_diag, v_matrix, S, S_o, num_states )
+
+endif !on_root
+
+    call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_HH_R',2)
+    return
+
+101 call io_error('Error in get_HH_R: problem opening file '//&
+         trim(seedname)//'_HH_R.dat')
+
+102 call io_error('Error in get_AA_R: problem opening file '//&
+         trim(seedname)//'_AA_R.dat')
+
+103 call io_error&
+         ('Error: Problem opening input file '//trim(seedname)//'.mmn')
+104 call io_error&
+         ('Error: Problem reading input file '//trim(seedname)//'.mmn')
+
+
+  end subroutine get_ahc_R
+
+
+
+
+  !============================================================!
+  subroutine get_morb_R
+  !============================================================!
+  !                                                            !
+  ! <0n|H|Rm>, in eV                                           !
+  ! (pwscf uses Ry, but pw2wannier90 converts to eV)           !
+  ! AA_a((R) = <0|r_a|R> is the Fourier transform              !
+  ! of the Berrry connection AA_a(k) = i<u|del_a u>            !
+  ! (a=x,y,z)                                                  !
+  ! BB_a(R)=<0n|H(r-R)|Rm> is the Fourier transform of         !
+  ! BB_a(k) = i<u|H|del_a u> (a=x,y,z)                         !
+  ! CC_ab(R) = <0|r_a.H.(r-R)_b|R> is the Fourier transform of !
+  ! CC_ab(k) = <del_a u|H|del_b u> (a,b=x,y,z)                 !
+  !                                                            !
+  !============================================================!
+
+    use w90_constants, only      : dp,cmplx_0,cmplx_i
+    use w90_io, only             : io_error,stdout,io_stopwatch,&
+                                   io_file_unit,seedname
+    use w90_parameters, only     : num_wann,ndimwin,num_kpts,num_bands,&
+                                   eigval,u_matrix,have_disentangled,&
+                                   timing_level,scissors_shift,nntot, nnlist,&
+                                   num_valence_bands,effective_model,transl_inv,&
+                                   real_lattice, wb,bk, nncell, berry_uHu_formatted
+    use w90_postw90_common, only : nrpts,rpt_origin,v_matrix,ndegen,irvec,crvec
+    use w90_comms, only          : on_root,comms_bcast
+
+    implicit none
+
+    integer                       :: i,j,n,m,ii,jj,ik,a,b,file_unit,&
+                                     winmin_q,winmin_qb,winmin_qb1,winmin_qb2,&
+                                     ir,io,idum,ivdum(3),ivdum_old(3),&
+                                     uHu_in,qb1,qb2,nn1,nn2
+    integer                       :: ik2,ik_prev, nn,inn,nnl,nnm,nnn,&
+                                     idir,ncount,nn_count,mmn_in,&
+                                     nb_tmp,nkp_tmp,nntot_tmp
+
+    integer, allocatable          :: num_states(:)
+    real(kind=dp)                 :: rdum_real,rdum_imag, &
+                                     m_real,m_imag,rdum1_real,rdum1_imag, &
+                                     rdum2_real,rdum2_imag,rdum3_real,rdum3_imag,&
+                                     c_real,c_img
+
+    complex(kind=dp), allocatable :: HH_q(:,:,:)
+    complex(kind=dp), allocatable :: AA_q(:,:,:,:), AA_q_diag(:,:)
+    complex(kind=dp), allocatable :: S_o(:,:), S(:,:)
+    complex(kind=dp), allocatable :: H_q_qb(:,:), BB_q(:,:,:,:)
+    complex(kind=dp), allocatable :: CC_q(:,:,:,:,:), Ho_qb1_q_qb2(:,:), H_qb1_q_qb2(:,:)
+
+    logical                       :: new_ir, nn_found
+    character(len=60)             :: header
+
+    
+    !ivo
+    complex(kind=dp), allocatable :: sciss_q(:,:,:)
+    complex(kind=dp), allocatable :: sciss_R(:,:,:)
+    real(kind=dp)                 :: sciss_shift
+    complex(kind=dp)              :: x
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_morb_R',1)
+
+!!!!! carfull here kslice kpath      if(.not.allocated(HH_R)) then
+
+       allocate(HH_R(num_wann,num_wann,nrpts))
+       allocate(AA_R(num_wann,num_wann,nrpts,3))
+       allocate(BB_R(num_wann,num_wann,nrpts,3))
+       allocate(CC_R(num_wann,num_wann,nrpts,3,3))
+
+    ! Real-space Hamiltonian H(R) and position matrix elements are read from file
+    !
+    if(effective_model) then
+       HH_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading real-space Hamiltonian from file '&
+               //trim(seedname)//'_HH_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_HH_R.dat',form='formatted',&
+               status='old',err=101)
+          read(file_unit,*) ! header
+          read(file_unit,*) idum ! num_wann
+          read(file_unit,*) idum ! nrpts
+          ir=1
+          new_ir=.true.
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,2F12.6)',iostat=io) ivdum(1:3),j,i,&
+                  rdum_real,rdum_imag
+             if(io<0) exit ! reached end of file
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error&
+                     ('Error in get_HH_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) then
+                   ir=ir+1
+                   new_ir=.true.
+                else
+                   new_ir=.false.
+                endif
+             endif
+             ivdum_old=ivdum
+             ! Note that the same (j,i,ir) may occur more than once in
+             ! the file seedname_HH_R.dat, hence the addition instead
+             ! of a simple equality. (This has to do with the way the
+             ! Berlijn effective Hamiltonian algorithm is
+             ! implemented.)
+             HH_R(j,i,ir)=HH_R(j,i,ir)+cmplx(rdum_real,rdum_imag,kind=dp)
+             if(new_ir) then
+                irvec(:,ir)=ivdum(:)
+                if(ivdum(1)==0.and.ivdum(2)==0.and.ivdum(3)==0) rpt_origin=ir
+             endif
+             n=n+1
+          enddo
+          close(file_unit)
+          if(ir/=nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_HH_R: inconsistent nrpts values')
+          endif
+
+          do ir=1,nrpts
+             crvec(:,ir)=matmul(transpose(real_lattice),irvec(:,ir))
+          end do
+
+          ndegen(:)=1 ! This is assumed when reading HH_R from file
+          !
+          ! TODO: Implement scissors in this case? Need to choose a
+          ! uniform k-mesh (the scissors correction is applied in
+          ! k-space) and then proceed as below, Fourier transforming
+          ! back to real space and adding to HH_R, Hopefully the
+          ! result converges (rapidly) with the k-mesh density, but
+          ! one should check
+          !
+          if(abs(scissors_shift)>1.0e-7_dp)&
+               call io_error(&
+               'Error in get_HH_R: scissors shift not implemented for '&
+               //'effective_model=T')
+       endif
+
+       call comms_bcast(HH_R(1,1,1),num_wann*num_wann*nrpts)
+       call comms_bcast(ndegen(1),nrpts)
+       call comms_bcast(irvec(1,1),3*nrpts)
+       call comms_bcast(crvec(1,1),3*nrpts)
+!
+!
+       AA_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading position matrix elements from file '&
+               //trim(seedname)//'_AA_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_AA_R.dat',form='formatted',&
+               status='old',err=102)
+          read(file_unit,*) ! header
+          ir=1
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,6F12.6)',iostat=io)&
+                  ivdum(1:3),j,i,rdum1_real,rdum1_imag,&
+                  rdum2_real,rdum2_imag,rdum3_real,rdum3_imag
+             if(io<0) exit
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error('Error in get_AA_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) ir=ir+1
+             endif
+             ivdum_old=ivdum
+             AA_R(j,i,ir,1)=AA_R(j,i,ir,1)+cmplx(rdum1_real,rdum1_imag,kind=dp)
+             AA_R(j,i,ir,2)=AA_R(j,i,ir,2)+cmplx(rdum2_real,rdum2_imag,kind=dp)
+             AA_R(j,i,ir,3)=AA_R(j,i,ir,3)+cmplx(rdum3_real,rdum3_imag,kind=dp)
+             n=n+1
+          enddo
+          close(file_unit)
+          ! AA_R may not contain the same number of R-vectors as HH_R
+          ! (e.g., if a diagonal representation of the position matrix
+          ! elements is used, but it cannot be larger
+          if(ir>nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_AA_R: inconsistent nrpts values')
+          endif
+       endif
+       call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+!
+!
+       if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_HH_R',2)
+       return
+    endif
+
+    ! Everything below is only executed if effective_model==False (default)
+
+    ! Real-space Hamiltonian H(R) is calculated by Fourier
+    ! transforming H(q) defined on the ab-initio reciprocal mesh
+    !
+    ! Real-space position matrix elements calculated by Fourier
+    ! transforming overlap matrices defined on the ab-initio
+    ! reciprocal mesh
+    !
+    ! Do everything on root, broadcast AA_R at the end (smaller than S_o)
+    !
+
+if(on_root) then
+
+    allocate(HH_q(num_wann,num_wann,num_kpts))
+    allocate(num_states(num_kpts))
+
+    HH_q=cmplx_0
+    do ik=1,num_kpts
+       if(have_disentangled) then 
+          num_states(ik)=ndimwin(ik)
+       else
+          num_states(ik)=num_wann
+       endif
+
+       call get_win_min(ik,winmin_q)
+
+       do m=1,num_wann
+          do n=1,m
+             do i=1,num_states(ik)
+                ii=winmin_q+i-1
+                HH_q(n,m,ik)=HH_q(n,m,ik)&
+                 +conjg(v_matrix(i,n,ik))*eigval(ii,ik)&
+                 *v_matrix(i,m,ik)
+             enddo
+             HH_q(m,n,ik)=conjg(HH_q(n,m,ik))
+          enddo
+       enddo
+    enddo
+
+    call fourier_q_to_R(HH_q,HH_R)
+
+    ! Scissors correction for an insulator: shift conduction bands upwards by 
+    ! scissors_shift eV
+    !
+    if(num_valence_bands>0 .and. abs(scissors_shift)>1.0e-7_dp) then
+       allocate(sciss_R(num_wann,num_wann,nrpts))
+       allocate(sciss_q(num_wann,num_wann,num_kpts))
+       sciss_q=cmplx_0
+       do ik=1,num_kpts
+          do j=1,num_wann
+             do i=1,j
+                do m=1,num_valence_bands
+                   sciss_q(i,j,ik)=sciss_q(i,j,ik)-&
+                        conjg(u_matrix(m,i,ik))*u_matrix(m,j,ik)
+                enddo
+                sciss_q(j,i,ik)=conjg(sciss_q(i,j,ik))
+             enddo
+          enddo
+       enddo
+
+       call fourier_q_to_R(sciss_q,sciss_R)
+
+       do n=1,num_wann
+          sciss_R(n,n,rpt_origin)=sciss_R(n,n,rpt_origin)+1.0_dp
+       end do
+       sciss_R=sciss_R*scissors_shift
+       HH_R=HH_R+sciss_R
+
+       deallocate( sciss_q, sciss_R )
+
+    endif
+ 
+    deallocate( HH_q )
+
+endif !on_root
+
+    call comms_bcast( HH_R(1,1,1),num_wann*num_wann*nrpts )
+
+if(on_root) then
+
+    if(abs(scissors_shift)>1.0e-7_dp)&
+       call io_error('Error: scissors correction not yet implemented for BB_R')
+
+    allocate(AA_q(num_wann,num_wann,num_kpts,3))
+    allocate(AA_q_diag(num_wann,3))
+    allocate(S_o(num_bands,num_bands))
+    allocate(S(num_wann,num_wann))
+    allocate(BB_q(num_wann,num_wann,num_kpts,3))
+    allocate(H_q_qb(num_wann,num_wann))
+
+
+       mmn_in=io_file_unit()
+       open(unit=mmn_in,file=trim(seedname)//'.mmn',&
+            form='formatted',status='old',action='read',err=103)
+       write(stdout,'(/a)',advance='no')&
+            ' Reading overlaps from '//trim(seedname)//'.mmn in get_AA_R   : '
+       ! Read the comment line (header)
+       read(mmn_in,'(a)',err=104,end=104) header
+       write(stdout,'(a)') trim(header)
+       ! Read the number of bands, k-points and nearest neighbours
+       read(mmn_in,*,err=104,end=104) nb_tmp,nkp_tmp,nntot_tmp
+       ! Checks
+       if (nb_tmp.ne.num_bands) &
+            call io_error(trim(seedname)//'.mmn has wrong number of bands')
+       if (nkp_tmp.ne.num_kpts) &
+            call io_error(trim(seedname)//'.mmn has wrong number of k-points')
+       if (nntot_tmp.ne.nntot) &
+            call io_error&
+            (trim(seedname)//'.mmn has wrong number of nearest neighbours')
+
+       AA_q=cmplx_0
+       ik_prev=0
+       BB_q=cmplx_0
+
+!!! Gosia    split these loops to make parallel over k-points outer
+       ! Composite loop over k-points ik (outer loop) and neighbors ik2 (inner)
+       do ncount=1,num_kpts*nntot
+          !
+          !Read from .mmn file the original overlap matrix
+          ! S_o=<u_ik|u_ik2> between ab initio eigenstates
+          !
+          read(mmn_in,*,err=102,end=102) ik,ik2,nnl,nnm,nnn
+          do n=1,num_bands
+             do m=1,num_bands
+                read(mmn_in,*,err=102,end=102) m_real,m_imag
+                S_o(m,n)=cmplx(m_real,m_imag,kind=dp)
+             enddo
+          enddo
+          !debug
+          !OK
+          !if(ik.ne.ik_prev .and.ik_prev.ne.0) then
+          !   if(nn_count.ne.nntot)&
+          !        write(stdout,*) 'something wrong in get_AA_R!'
+          !endif
+          !enddebug
+          if(ik.ne.ik_prev) nn_count=0
+          nn=0
+          nn_found=.false.
+          do inn = 1, nntot
+             if ((ik2.eq.nnlist(ik,inn)).and. &
+                  (nnl.eq.nncell(1,ik,inn)).and. &
+                  (nnm.eq.nncell(2,ik,inn)).and. &
+                  (nnn.eq.nncell(3,ik,inn)) ) then
+                if (.not.nn_found) then
+                   nn_found=.true.
+                   nn=inn
+                else
+                   call io_error('Error reading '//trim(seedname)//'.mmn.&
+                        & More than one matching nearest neighbour found')
+                endif
+             endif
+          end do
+          if (nn.eq.0) then
+             write(stdout,'(/a,i8,2i5,i4,2x,3i3)') &
+                  ' Error reading '//trim(seedname)//'.mmn:',&
+                  ncount,ik,ik2,nn,nnl,nnm,nnn
+             call io_error('Neighbour not found')
+          end if
+          nn_count=nn_count+1 !Check: can also be place after nn=inn (?)
+
+          ! Wannier-gauge overlap matrix S in the projected subspace
+          !
+          call get_win_min(ik,winmin_q)
+          call get_win_min(nnlist(ik,nn),winmin_qb)
+          S=cmplx_0
+          H_q_qb(:,:)=cmplx_0
+          do m=1,num_wann
+             do n=1,num_wann
+                do i=1,num_states(ik)
+                   ii=winmin_q+i-1
+                   do j=1,num_states(nnlist(ik,nn))
+                      jj=winmin_qb+j-1
+                      x = conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
+                           *v_matrix(j,m,nnlist(ik,nn))
+                      S(n,m)=S(n,m) + x
+                      H_q_qb(n,m)=H_q_qb(n,m) + x*eigval(ii,ik)
+                   enddo
+                enddo
+             enddo
+          enddo
+
+          ! Berry connection matrix
+          ! Assuming all neighbors of a given point are read in sequence!
+          !
+          if(transl_inv .and. ik.ne.ik_prev) AA_q_diag(:,:)=cmplx_0
+          do idir=1,3
+
+             AA_q(:,:,ik,idir)=AA_q(:,:,ik,idir)&
+                  +cmplx_i*wb(nn)*bk(idir,nn,ik)*S(:,:)
+             BB_q(:,:,ik,idir)=BB_q(:,:,ik,idir)&
+                  +cmplx_i*wb(nn)*bk(idir,nn,ik)*H_q_qb(:,:)
+
+             if(transl_inv) then
+                !
+                ! Rewrite band-diagonal elements a la Eq.(31) of MV97
+                !
+                do i=1,num_wann
+                   AA_q_diag(i,idir)=AA_q_diag(i,idir)&
+                        -wb(nn)*bk(idir,nn,ik)*aimag(log(S(i,i)))
+                enddo
+             endif
+          end do
+          ! Assuming all neighbors of a given point are read in sequence!
+          if(nn_count==nntot) then !looped over all neighbors
+             do idir=1,3
+                if(transl_inv) then
+                   do n=1,num_wann
+                      AA_q(n,n,ik,idir)=AA_q_diag(n,idir)
+                   enddo
+                endif
+                !
+                ! Since Eq.(44) WYSV06 does not preserve the Hermiticity of the
+                ! Berry potential matrix, take Hermitean part (whether this
+                ! makes a difference or not for e.g. the AHC, depends on which
+                ! expression is used to evaluate the Berry curvature.
+                ! See comments in berry_wanint.F90)
+                !
+                AA_q(:,:,ik,idir)=&
+                     0.5_dp*(AA_q(:,:,ik,idir)&
+                     +conjg(transpose(AA_q(:,:,ik,idir))))
+             enddo
+          end if
+
+          ik_prev=ik
+       enddo !ncount
+
+       close(mmn_in)
+
+       call fourier_q_to_R(AA_q(:,:,:,1),AA_R(:,:,:,1))
+       call fourier_q_to_R(AA_q(:,:,:,2),AA_R(:,:,:,2))
+       call fourier_q_to_R(AA_q(:,:,:,3),AA_R(:,:,:,3))
+       call fourier_q_to_R(BB_q(:,:,:,1),BB_R(:,:,:,1))
+       call fourier_q_to_R(BB_q(:,:,:,2),BB_R(:,:,:,2))
+       call fourier_q_to_R(BB_q(:,:,:,3),BB_R(:,:,:,3))
+
+
+    deallocate( AA_q, AA_q_diag, S, S_o, BB_q, H_q_qb )
+
+endif !on_root
+
+    call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+    call comms_bcast(BB_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+
+if(on_root) then
+
+       if(abs(scissors_shift)>1.0e-7_dp)&
+            call io_error('Error: scissors correction not yet implemented for CC_R')
+
+       allocate(Ho_qb1_q_qb2(num_bands,num_bands))
+       allocate(H_qb1_q_qb2(num_wann,num_wann))
+       allocate(CC_q(num_wann,num_wann,num_kpts,3,3))
+
+       uHu_in=io_file_unit()
+       if (berry_uHu_formatted) then
+          open(unit=uHu_in, file=trim(seedname)//".uHu",form='formatted',&
+               status='old',action='read',err=105)
+          write(stdout,'(/a)',advance='no')&
+               ' Reading uHu overlaps from '//trim(seedname)//'.uHu in get_CC_R: '
+          read(uHu_in,*,err=106,end=106) header
+          write(stdout,'(a)') trim(header)
+          read(uHu_in,*,err=106,end=106) nb_tmp,nkp_tmp,nntot_tmp
+       else
+          open(unit=uHu_in, file=trim(seedname)//".uHu",form='unformatted',&
+               status='old',action='read',err=105)
+          write(stdout,'(/a)',advance='no')&
+               ' Reading uHu overlaps from '//trim(seedname)//'.uHu in get_CC_R: '
+          read(uHu_in,err=106,end=106) header
+          write(stdout,'(a)') trim(header)
+          read(uHu_in,err=106,end=106) nb_tmp,nkp_tmp,nntot_tmp
+       endif
+       if (nb_tmp.ne.num_bands) &
+            call io_error&
+            (trim(seedname)//'.uHu has not the right number of bands')
+       if (nkp_tmp.ne.num_kpts) &
+            call io_error&
+            (trim(seedname)//'.uHu has not the right number of k-points')
+       if (nntot_tmp.ne.nntot) &
+            call io_error&
+         (trim(seedname)//'.uHu has not the right number of nearest neighbours')
+
+       CC_q=cmplx_0
+       do ik=1,num_kpts
+          do nn2=1,nntot
+             qb2=nnlist(ik,nn2)
+             call get_win_min(qb2,winmin_qb2)
+             do nn1=1,nntot
+                qb1=nnlist(ik,nn1)
+                call get_win_min(qb1,winmin_qb1)
+                !
+                ! Read from .uHu file the matrices <u_{q+b1}|H_q|u_{q+b2}>
+                ! between the original ab initio eigenstates
+                !
+                if (berry_uHu_formatted) then
+                   do m=1,num_bands
+                      do n=1,num_bands
+                         read(uHu_in,'(2ES20.10)',err=106,end=106) c_real,c_img
+                         Ho_qb1_q_qb2(n,m) = cmplx(c_real,c_img)
+                      end do
+                   end do
+                else
+                   read(uHu_in,err=106,end=106)&
+                        ((Ho_qb1_q_qb2(n,m),n=1,num_bands),m=1,num_bands)
+                endif
+                ! pw2wannier90 is coded a bit strangely, so here we take the transpose
+                Ho_qb1_q_qb2=transpose(Ho_qb1_q_qb2)
+                ! old code here
+                !do m=1,num_bands
+                !   do n=1,num_bands
+                !      read(uHu_in,err=106,end=106) Ho_qb1_q_qb2(m,n)
+                !   end do
+                !end do
+                !
+                ! Transform to projected subspace, Wannier gauge
+                !
+                H_qb1_q_qb2(:,:)=cmplx_0
+                do m=1,num_wann
+                   do n=1,num_wann
+                      do i=1,num_states(qb1)
+                         ii=winmin_qb1+i-1
+                         do j=1,num_states(qb2)
+                            jj=winmin_qb2+j-1
+                            H_qb1_q_qb2(n,m)=H_qb1_q_qb2(n,m)&
+                                 +conjg(v_matrix(i,n,qb1))&
+                                 *Ho_qb1_q_qb2(ii,jj)&
+                                 *v_matrix(j,m,qb2)
+                         enddo
+                      enddo
+                   enddo
+                enddo
+                do b=1,3
+                   do a=1,b
+                      CC_q(:,:,ik,a,b)=CC_q(:,:,ik,a,b)+wb(nn1)*bk(a,nn1,ik)&
+                           *wb(nn2)*bk(b,nn2,ik)*H_qb1_q_qb2(:,:)
+                   enddo
+                enddo
+             enddo !nn1
+          enddo !nn2
+          do b=1,3
+             do a=1,b
+                CC_q(:,:,ik,b,a)=conjg(transpose(CC_q(:,:,ik,a,b)))
+             enddo
+          enddo
+       enddo !ik
+
+       close(uHu_in)
+
+       do b=1,3
+          do a=1,3
+             call fourier_q_to_R(CC_q(:,:,:,a,b),CC_R(:,:,:,a,b))
+          enddo
+       enddo
+
+       deallocate (num_states, v_matrix, Ho_qb1_q_qb2, H_qb1_q_qb2, CC_q)
+
+endif !on_root
+
+    call comms_bcast(CC_R(1,1,1,1,1),num_wann*num_wann*nrpts*3*3)
+
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_morb_R',2)
+    return
+
+101 call io_error('Error in get_HH_R: problem opening file '//&
+         trim(seedname)//'_HH_R.dat')
+
+102 call io_error('Error in get_AA_R: problem opening file '//&
+         trim(seedname)//'_AA_R.dat')
+
+103 call io_error&
+         ('Error: Problem opening input file '//trim(seedname)//'.mmn')
+104 call io_error&
+         ('Error: Problem reading input file '//trim(seedname)//'.mmn')
+
+105 call io_error&
+         ('Error: Problem opening input file '//trim(seedname)//'.uHu')
+106 call io_error&
+         ('Error: Problem reading input file '//trim(seedname)//'.uHu')
+
+
+  end subroutine get_morb_R
+
+
+
+
+  !======================================================!
+  subroutine get_kubo_R
+  !======================================================!
+  !                                                      !
+  ! <0n|H|Rm>, in eV                                     !
+  ! (pwscf uses Ry, but pw2wannier90 converts to eV)     !
+  ! AA_a((R) = <0|r_a|R> is the Fourier transform        !
+  ! of the Berrry connection AA_a(k) = i<u|del_a u>      !
+  ! (a=x,y,z)                                            !
+  ! Wannier representation of the Pauli matrices:        !
+  ! <0n|sigma_a|Rm>   (a=x,y,z)                          !
+  !                                                      !
+  !======================================================!
+
+    use w90_constants, only      : dp,cmplx_0,cmplx_i
+    use w90_io, only             : io_error,stdout,io_stopwatch,&
+                                   io_file_unit,seedname
+    use w90_parameters, only     : wb,num_wann,ndimwin,num_kpts,num_bands,&
+                                   eigval,u_matrix,have_disentangled,bk,&
+                                   timing_level,scissors_shift,nntot, nnlist, nncell,&
+                                   num_valence_bands,effective_model,transl_inv,&
+                                   real_lattice, spin_decomp, spn_formatted
+
+    use w90_postw90_common, only : nrpts,rpt_origin,v_matrix,ndegen,irvec,crvec
+    use w90_comms, only          : on_root,comms_bcast
+
+    implicit none
+
+    integer                       :: i,j,n,m,ii,ik,winmin_q,file_unit,&
+                                     ir,io,idum,ivdum(3),ivdum_old(3)
+    integer                       :: jj, ik2,ik_prev, nn,inn,nnl,nnm,nnn,&
+                                     idir,ncount,nn_count,mmn_in,winmin,&
+                                     nb_tmp,nkp_tmp,nntot_tmp,counter,&
+                                     ierr,spn_in,is,sss,winmin_qb
+
+    integer, allocatable          :: num_states(:)
+
+    real(kind=dp)                 :: rdum_real,rdum_imag, &
+                                     m_real,m_imag,rdum1_real,rdum1_imag, &
+                                     rdum2_real,rdum2_imag,rdum3_real,rdum3_imag
+
+    complex(kind=dp), allocatable :: HH_q(:,:,:)
+    complex(kind=dp), allocatable :: AA_q(:,:,:,:), AA_q_diag(:,:)
+    complex(kind=dp), allocatable :: S_o(:,:), S(:,:)
+    complex(kind=dp), allocatable :: spn_o(:,:,:,:),SS_q(:,:,:,:),spn_temp(:,:)
+
+    real(kind=dp)                 :: s_real,s_img
+
+    logical                       :: new_ir, nn_found
+    character(len=60)             :: header
+
+    
+    !ivo
+    complex(kind=dp), allocatable :: sciss_q(:,:,:)
+    complex(kind=dp), allocatable :: sciss_R(:,:,:)
+    real(kind=dp)                 :: sciss_shift
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_kubo_R',1)
+
+!!!!! carfull here kslice kpath      if(.not.allocated(HH_R)) then
+
+       allocate(HH_R(num_wann,num_wann,nrpts))
+       allocate(AA_R(num_wann,num_wann,nrpts,3))
+
+    ! Real-space Hamiltonian H(R) and position matrix elements are read from file
+    !
+    if(effective_model) then
+       HH_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading real-space Hamiltonian from file '&
+               //trim(seedname)//'_HH_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_HH_R.dat',form='formatted',&
+               status='old',err=101)
+          read(file_unit,*) ! header
+          read(file_unit,*) idum ! num_wann
+          read(file_unit,*) idum ! nrpts
+          ir=1
+          new_ir=.true.
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,2F12.6)',iostat=io) ivdum(1:3),j,i,&
+                  rdum_real,rdum_imag
+             if(io<0) exit ! reached end of file
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error&
+                     ('Error in get_HH_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) then
+                   ir=ir+1
+                   new_ir=.true.
+                else
+                   new_ir=.false.
+                endif
+             endif
+             ivdum_old=ivdum
+             ! Note that the same (j,i,ir) may occur more than once in
+             ! the file seedname_HH_R.dat, hence the addition instead
+             ! of a simple equality. (This has to do with the way the
+             ! Berlijn effective Hamiltonian algorithm is
+             ! implemented.)
+             HH_R(j,i,ir)=HH_R(j,i,ir)+cmplx(rdum_real,rdum_imag,kind=dp)
+             if(new_ir) then
+                irvec(:,ir)=ivdum(:)
+                if(ivdum(1)==0.and.ivdum(2)==0.and.ivdum(3)==0) rpt_origin=ir
+             endif
+             n=n+1
+          enddo
+          close(file_unit)
+          if(ir/=nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_HH_R: inconsistent nrpts values')
+          endif
+
+          do ir=1,nrpts
+             crvec(:,ir)=matmul(transpose(real_lattice),irvec(:,ir))
+          end do
+
+          ndegen(:)=1 ! This is assumed when reading HH_R from file
+          !
+          ! TODO: Implement scissors in this case? Need to choose a
+          ! uniform k-mesh (the scissors correction is applied in
+          ! k-space) and then proceed as below, Fourier transforming
+          ! back to real space and adding to HH_R, Hopefully the
+          ! result converges (rapidly) with the k-mesh density, but
+          ! one should check
+          !
+          if(abs(scissors_shift)>1.0e-7_dp)&
+               call io_error(&
+               'Error in get_HH_R: scissors shift not implemented for '&
+               //'effective_model=T')
+       endif
+       call comms_bcast(HH_R(1,1,1),num_wann*num_wann*nrpts)
+       call comms_bcast(ndegen(1),nrpts)
+       call comms_bcast(irvec(1,1),3*nrpts)
+       call comms_bcast(crvec(1,1),3*nrpts)
+!
+!
+       AA_R=cmplx_0
+       if(on_root) then
+          write(stdout,'(/a)') ' Reading position matrix elements from file '&
+               //trim(seedname)//'_AA_R.dat'
+          file_unit=io_file_unit()
+          open(file_unit,file=trim(seedname)//'_AA_R.dat',form='formatted',&
+               status='old',err=102)
+          read(file_unit,*) ! header
+          ir=1
+          ivdum_old(:)=0
+          n=1
+          do
+             read(file_unit,'(5I5,6F12.6)',iostat=io)&
+                  ivdum(1:3),j,i,rdum1_real,rdum1_imag,&
+                  rdum2_real,rdum2_imag,rdum3_real,rdum3_imag
+             if(io<0) exit
+             if(i<1 .or. i>num_wann .or. j<1 .or. j>num_wann) then
+                write(stdout,*) 'num_wann=',num_wann,'  i=',i,'  j=',j
+                call io_error('Error in get_AA_R: orbital indices out of bounds')
+             endif
+             if(n>1) then
+                if(ivdum(1)/=ivdum_old(1) .or. ivdum(2)/=ivdum_old(2) .or.&
+                     ivdum(3)/=ivdum_old(3)) ir=ir+1
+             endif
+             ivdum_old=ivdum
+             AA_R(j,i,ir,1)=AA_R(j,i,ir,1)+cmplx(rdum1_real,rdum1_imag,kind=dp)
+             AA_R(j,i,ir,2)=AA_R(j,i,ir,2)+cmplx(rdum2_real,rdum2_imag,kind=dp)
+             AA_R(j,i,ir,3)=AA_R(j,i,ir,3)+cmplx(rdum3_real,rdum3_imag,kind=dp)
+             n=n+1
+          enddo
+          close(file_unit)
+          ! AA_R may not contain the same number of R-vectors as HH_R
+          ! (e.g., if a diagonal representation of the position matrix
+          ! elements is used, but it cannot be larger
+          if(ir>nrpts) then
+             write(stdout,*) 'ir=',ir,'  nrpts=',nrpts
+             call io_error('Error in get_AA_R: inconsistent nrpts values')
+          endif
+       endif
+       call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+!
+!
+       if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_kubo_R',2)
+       return
+    endif
+
+    ! Everything below is only executed if effective_model==False (default)
+
+    ! Real-space Hamiltonian H(R) is calculated by Fourier
+    ! transforming H(q) defined on the ab-initio reciprocal mesh
+    !
+    ! Real-space position matrix elements calculated by Fourier
+    ! transforming overlap matrices defined on the ab-initio
+    ! reciprocal mesh
+    !
+    ! Do everything on root, broadcast AA_R at the end (smaller than S_o)
+    !
+
+if(on_root) then
+
+    allocate(HH_q(num_wann,num_wann,num_kpts))
+    allocate(num_states(num_kpts))
+
+    HH_q=cmplx_0
+    do ik=1,num_kpts
+       if(have_disentangled) then 
+          num_states(ik)=ndimwin(ik)
+       else
+          num_states(ik)=num_wann
+       endif
+
+       call get_win_min(ik,winmin_q)
+
+       do m=1,num_wann
+          do n=1,m
+             do i=1,num_states(ik)
+                ii=winmin_q+i-1
+                HH_q(n,m,ik)=HH_q(n,m,ik)&
+                 +conjg(v_matrix(i,n,ik))*eigval(ii,ik)&
+                 *v_matrix(i,m,ik)
+             enddo
+             HH_q(m,n,ik)=conjg(HH_q(n,m,ik))
+          enddo
+       enddo
+    enddo
+
+    call fourier_q_to_R(HH_q,HH_R)
+
+    ! Scissors correction for an insulator: shift conduction bands upwards by 
+    ! scissors_shift eV
+    !
+    if(num_valence_bands>0 .and. abs(scissors_shift)>1.0e-7_dp) then
+       allocate(sciss_R(num_wann,num_wann,nrpts))
+       allocate(sciss_q(num_wann,num_wann,num_kpts))
+       sciss_q=cmplx_0
+       do ik=1,num_kpts
+          do j=1,num_wann
+             do i=1,j
+                do m=1,num_valence_bands
+                   sciss_q(i,j,ik)=sciss_q(i,j,ik)-&
+                        conjg(u_matrix(m,i,ik))*u_matrix(m,j,ik)
+                enddo
+                sciss_q(j,i,ik)=conjg(sciss_q(i,j,ik))
+             enddo
+          enddo
+       enddo
+
+       call fourier_q_to_R(sciss_q,sciss_R)
+
+       do n=1,num_wann
+          sciss_R(n,n,rpt_origin)=sciss_R(n,n,rpt_origin)+1.0_dp
+       end do
+       sciss_R=sciss_R*scissors_shift
+       HH_R=HH_R+sciss_R
+
+       deallocate( sciss_q, sciss_R )
+
+    endif
+ 
+    deallocate( HH_q )
+
+endif !on_root
+
+    call comms_bcast( HH_R(1,1,1),num_wann*num_wann*nrpts )
+
+if(on_root) then
+
+    allocate(AA_q(num_wann,num_wann,num_kpts,3))
+    allocate(AA_q_diag(num_wann,3))
+    allocate(S_o(num_bands,num_bands))
+    allocate(S(num_wann,num_wann))
+
+       mmn_in=io_file_unit()
+       open(unit=mmn_in,file=trim(seedname)//'.mmn',&
+            form='formatted',status='old',action='read',err=103)
+       write(stdout,'(/a)',advance='no')&
+            ' Reading overlaps from '//trim(seedname)//'.mmn in get_AA_R   : '
+       ! Read the comment line (header)
+       read(mmn_in,'(a)',err=104,end=104) header
+       write(stdout,'(a)') trim(header)
+       ! Read the number of bands, k-points and nearest neighbours
+       read(mmn_in,*,err=104,end=104) nb_tmp,nkp_tmp,nntot_tmp
+       ! Checks
+       if (nb_tmp.ne.num_bands) &
+            call io_error(trim(seedname)//'.mmn has wrong number of bands')
+       if (nkp_tmp.ne.num_kpts) &
+            call io_error(trim(seedname)//'.mmn has wrong number of k-points')
+       if (nntot_tmp.ne.nntot) &
+            call io_error&
+            (trim(seedname)//'.mmn has wrong number of nearest neighbours')
+
+       AA_q=cmplx_0
+       ik_prev=0
+
+!!! Gosia    split these loops to make parallel over k-points outer
+       ! Composite loop over k-points ik (outer loop) and neighbors ik2 (inner)
+       do ncount=1,num_kpts*nntot
+          !
+          !Read from .mmn file the original overlap matrix
+          ! S_o=<u_ik|u_ik2> between ab initio eigenstates
+          !
+          read(mmn_in,*,err=104,end=104) ik,ik2,nnl,nnm,nnn
+          do n=1,num_bands
+             do m=1,num_bands
+                read(mmn_in,*,err=104,end=104) m_real,m_imag
+                S_o(m,n)=cmplx(m_real,m_imag,kind=dp)
+             enddo
+          enddo
+          !debug
+          !OK
+          !if(ik.ne.ik_prev .and.ik_prev.ne.0) then
+          !   if(nn_count.ne.nntot)&
+          !        write(stdout,*) 'something wrong in get_AA_R!'
+          !endif
+          !enddebug
+          if(ik.ne.ik_prev) nn_count=0
+          nn=0
+          nn_found=.false.
+          do inn = 1, nntot
+             if ((ik2.eq.nnlist(ik,inn)).and. &
+                  (nnl.eq.nncell(1,ik,inn)).and. &
+                  (nnm.eq.nncell(2,ik,inn)).and. &
+                  (nnn.eq.nncell(3,ik,inn)) ) then
+                if (.not.nn_found) then
+                   nn_found=.true.
+                   nn=inn
+                else
+                   call io_error('Error reading '//trim(seedname)//'.mmn.&
+                        & More than one matching nearest neighbour found')
+                endif
+             endif
+          end do
+          if (nn.eq.0) then
+             write(stdout,'(/a,i8,2i5,i4,2x,3i3)') &
+                  ' Error reading '//trim(seedname)//'.mmn:',&
+                  ncount,ik,ik2,nn,nnl,nnm,nnn
+             call io_error('Neighbour not found')
+          end if
+          nn_count=nn_count+1 !Check: can also be place after nn=inn (?)
+
+          ! Wannier-gauge overlap matrix S in the projected subspace
+          !
+          call get_win_min(ik,winmin_q)
+          call get_win_min(nnlist(ik,nn),winmin_qb)
+          S=cmplx_0
+          do m=1,num_wann
+             do n=1,num_wann
+                do i=1,num_states(ik)
+                   ii=winmin_q+i-1
+                   do j=1,num_states(nnlist(ik,nn))
+                      jj=winmin_qb+j-1
+                      S(n,m)=S(n,m)&
+                           +conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
+                           *v_matrix(j,m,nnlist(ik,nn))
+                   enddo
+                enddo
+             enddo
+          enddo
+
+          ! Berry connection matrix
+          ! Assuming all neighbors of a given point are read in sequence!
+          !
+          if(transl_inv .and. ik.ne.ik_prev) AA_q_diag(:,:)=cmplx_0
+          do idir=1,3
+             AA_q(:,:,ik,idir)=AA_q(:,:,ik,idir)&
+                  +cmplx_i*wb(nn)*bk(idir,nn,ik)*S(:,:)
+             if(transl_inv) then
+                !
+                ! Rewrite band-diagonal elements a la Eq.(31) of MV97
+                !
+                do i=1,num_wann
+                   AA_q_diag(i,idir)=AA_q_diag(i,idir)&
+                        -wb(nn)*bk(idir,nn,ik)*aimag(log(S(i,i)))
+                enddo
+             endif
+          end do
+          ! Assuming all neighbors of a given point are read in sequence!
+          if(nn_count==nntot) then !looped over all neighbors
+             do idir=1,3
+                if(transl_inv) then
+                   do n=1,num_wann
+                      AA_q(n,n,ik,idir)=AA_q_diag(n,idir)
+                   enddo
+                endif
+                !
+                ! Since Eq.(44) WYSV06 does not preserve the Hermiticity of the
+                ! Berry potential matrix, take Hermitean part (whether this
+                ! makes a difference or not for e.g. the AHC, depends on which
+                ! expression is used to evaluate the Berry curvature.
+                ! See comments in berry_wanint.F90)
+                !
+                AA_q(:,:,ik,idir)=&
+                     0.5_dp*(AA_q(:,:,ik,idir)&
+                     +conjg(transpose(AA_q(:,:,ik,idir))))
+             enddo
+          end if
+
+          ik_prev=ik
+       enddo !ncount
+
+       close(mmn_in)
+
+       call fourier_q_to_R(AA_q(:,:,:,1),AA_R(:,:,:,1))
+       call fourier_q_to_R(AA_q(:,:,:,2),AA_R(:,:,:,2))
+       call fourier_q_to_R(AA_q(:,:,:,3),AA_R(:,:,:,3))
+
+    deallocate( AA_q, AA_q_diag, S, S_o )
+    if(.not.spin_decomp) deallocate( v_matrix, num_states ) 
+
+endif !on_root
+
+    call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+
+
+if(spin_decomp) then
+
+    allocate(SS_R(num_wann,num_wann,nrpts,3))
+
+if(on_root) then
+
+       allocate(spn_o(num_bands,num_bands,num_kpts,3))
+       allocate(SS_q(num_wann,num_wann,num_kpts,3))
+
+       ! Read from .spn file the original spin matrices <psi_nk|sigma_i|psi_mk>
+       ! (sigma_i = Pauli matrix) between ab initio eigenstates
+       !
+       spn_in=io_file_unit()
+       if(spn_formatted) then
+          open(unit=spn_in,file=trim(seedname)//'.spn',form='formatted',&
+               status='old',err=109)
+          write(stdout,'(/a)',advance='no')&
+               ' Reading spin matrices from '//trim(seedname)//'.spn in get_kubo_R : '
+          read(spn_in,*,err=110,end=110) header
+          write(stdout,'(a)') trim(header)
+          read(spn_in,*,err=110,end=110) nb_tmp,nkp_tmp
+       else
+          open(unit=spn_in,file=trim(seedname)//'.spn',form='unformatted',&
+               status='old',err=109)
+          write(stdout,'(/a)',advance='no')&
+               ' Reading spin matrices from '//trim(seedname)//'.spn in get_kubo_R : '
+          read(spn_in,err=110,end=110) header
+          write(stdout,'(a)') trim(header)
+          read(spn_in,err=110,end=110) nb_tmp,nkp_tmp
+       endif
+       if (nb_tmp.ne.num_bands) &
+            call io_error(trim(seedname)//'.spn has wrong number of bands')
+       if (nkp_tmp.ne.num_kpts) &
+            call io_error(trim(seedname)//'.spn has wrong number of k-points')
+       if(spn_formatted) then
+          do ik=1,num_kpts
+             do m=1,num_bands
+                do n=1,m
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o(n,m,ik,1)=cmplx(s_real,s_img)
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o(n,m,ik,2)=cmplx(s_real,s_img)
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o(n,m,ik,3)=cmplx(s_real,s_img)
+                   ! Read upper-triangular part, now build the rest
+                   spn_o(m,n,ik,1)=conjg(spn_o(n,m,ik,1))
+                   spn_o(m,n,ik,2)=conjg(spn_o(n,m,ik,2))
+                   spn_o(m,n,ik,3)=conjg(spn_o(n,m,ik,3))
+                end do
+             end do
+          enddo
+       else
+          allocate(spn_temp(3,(num_bands*(num_bands+1))/2),stat=ierr)
+          if (ierr/=0) call io_error('Error in allocating spm_temp in get_kubo_R')
+          do ik=1,num_kpts
+             read(spn_in) ((spn_temp(sss,m),sss=1,3),m=1,(num_bands*(num_bands+1))/2)
+             counter=0
+             do m=1,num_bands
+                do n=1,m
+                   counter=counter+1
+                   spn_o(n,m,ik,1)=spn_temp(1,counter)
+                   spn_o(m,n,ik,1)=conjg(spn_temp(1,counter))
+                   spn_o(n,m,ik,2)=spn_temp(2,counter)
+                   spn_o(m,n,ik,2)=conjg(spn_temp(2,counter))
+                   spn_o(n,m,ik,3)=spn_temp(3,counter)
+                   spn_o(m,n,ik,3)=conjg(spn_temp(3,counter))
+                end do
+             end do
+          end do
+          deallocate(spn_temp,stat=ierr)
+          if (ierr/=0) call io_error('Error in deallocating spm_temp in get_kubo_R')
+       endif
+
+       close(spn_in)
+
+       ! Transform to projected subspace, Wannier gauge
+       !
+       SS_q(:,:,:,:)=cmplx_0
+       do ik=1,num_kpts
+          call get_win_min(ik,winmin)
+          do is=1,3
+             do m=1,num_wann
+                do n=1,m
+                   do i=1,num_states(ik)
+                      ii=winmin+i-1
+                      do j=1,num_states(ik)
+                         jj=winmin+j-1
+                         SS_q(n,m,ik,is)=SS_q(n,m,ik,is)&
+                              +conjg(v_matrix(i,n,ik))*spn_o(ii,jj,ik,is)&
+                              *v_matrix(j,m,ik)
+                      enddo !j
+                   enddo !i
+                   SS_q(m,n,ik,is)=conjg(SS_q(n,m,ik,is))
+                enddo !n
+             enddo !m
+          enddo !is
+       enddo !ik
+
+       call fourier_q_to_R(SS_q(:,:,:,1),SS_R(:,:,:,1))
+       call fourier_q_to_R(SS_q(:,:,:,2),SS_R(:,:,:,2))
+       call fourier_q_to_R(SS_q(:,:,:,3),SS_R(:,:,:,3))
+
+       deallocate (v_matrix, num_states, spn_o, SS_q ) 
+
+endif !on_root and spin_decomp
+
+    call comms_bcast(SS_R(1,1,1,1),num_wann*num_wann*nrpts*3)
+
+endif  !spin_decomp
+
+    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_kubo_R',2)
+    return
+
+101 call io_error('Error in get_HH_R: problem opening file '//&
+         trim(seedname)//'_HH_R.dat')
+
+102 call io_error('Error in get_AA_R: problem opening file '//&
+         trim(seedname)//'_AA_R.dat')
+
+103 call io_error&
+         ('Error: Problem opening input file '//trim(seedname)//'.mmn')
+104 call io_error&
+         ('Error: Problem reading input file '//trim(seedname)//'.mmn')
+
+109 call io_error&
+         ('Error: Problem opening input file '//trim(seedname)//'.spn')
+110 call io_error&
+         ('Error: Problem reading input file '//trim(seedname)//'.spn')
+
+
+  end subroutine get_kubo_R
+
+
+
+
   !======================================================!
   subroutine get_HH_R
   !======================================================!
