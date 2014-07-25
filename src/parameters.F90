@@ -3111,8 +3111,9 @@ contains
     ! accordingly also the w90chk2chk.x utility!      !
     !=================================================!
 
-    use w90_constants, only : eps6
-    use w90_io,        only : io_error,io_file_unit,stdout,seedname
+    use w90_constants,      only : eps6
+    use w90_io,             only : io_error,io_file_unit,stdout,seedname
+    !!!!use w90_parameters,     only : berry
 
     implicit none
 
@@ -3218,6 +3219,8 @@ contains
     read(chk_unit,err=125) (((u_matrix(i,j,k),i=1,num_wann),j=1,num_wann),k=1,num_kpts)
 
     ! M_matrix
+if(.not.berry) then
+!!! Gosia it is at the end so does not need to be read to keep stream of data
     if (.not.allocated(m_matrix)) then
        allocate(m_matrix(num_wann,num_wann,nntot,num_kpts),stat=ierr)
        if (ierr/=0) call io_error('Error allocating m_matrix in param_read_chkpt')
@@ -3229,6 +3232,7 @@ contains
     
     ! wannier spreads
     read(chk_unit,err=128) (wannier_spreads(i),i=1,num_wann)
+endif
 
     close(chk_unit)
 
