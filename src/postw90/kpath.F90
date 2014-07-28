@@ -33,7 +33,7 @@ contains
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine k_path
+  subroutine k_path (ahc_R_done, morb_R_done, SS_R_done)
 
     use w90_comms
     use w90_constants,  only     : dp,cmplx_0,cmplx_i,twopi,eps8
@@ -45,9 +45,12 @@ contains
                                    kpath_num_points,bands_num_spec_points,&
                                    bands_spec_points,bands_label,&
                                    kpath_bands_colour,nfermi,fermi_energy_list,&
-                                   berry_curv_unit
-    use w90_get_oper, only       : get_HH_R,HH_R,get_AA_R,get_BB_R,get_CC_R,&
-                                   get_FF_R,get_SS_R
+                                   berry_curv_unit,spin_decomp,berry_task
+!!!! Gosia here think!
+    use w90_get_oper, only       : get_ahc_R, get_morb_R, get_SS_R, HH_R, get_HH_R
+!    use w90_get_oper, only       : get_HH_R,HH_R,get_AA_R,get_BB_R,get_CC_R,&
+!                                   get_FF_R,get_SS_R
+
     use w90_spin, only           : get_spin_nk
     use w90_berry, only          : get_imf_k_list,get_imfgh_k_list
     use w90_constants, only      : bohr
@@ -59,7 +62,8 @@ contains
                          imf_k_list(3,3,nfermi),img_k_list(3,3,nfermi),&
                          imh_k_list(3,3,nfermi),Morb_k(3,3),&
                          kpath_len(bands_num_spec_points/2),range
-    logical           :: plot_bands,plot_curv,plot_morb
+    logical           :: plot_bands,plot_curv,plot_morb, &
+                         ahc_R_done, morb_R_done, SS_R_done
     character(len=20) :: file_name
 
     complex(kind=dp), allocatable :: HH(:,:)
@@ -86,15 +90,41 @@ contains
        plot_morb=.true.
     end if
     ! Set up the needed Wannier matrix elements
-    call get_HH_R
-    if(plot_curv.or.plot_morb) then
-       call get_AA_R
+
+!!!Gosia now not needed
+    !call get_HH_R
+    !if(plot_curv.or.plot_morb) then
+    !   call get_AA_R
+    !endif
+    !if(plot_morb) then
+    !   call get_BB_R
+    !   call get_CC_R
+    !endif
+!!!Gosia I insist that get_SS_R is before get_ahc_R and get_morb_R
+!        since it needs v_matrix which is deallocated in 
+!        get_ahc_R, morb routines
+
+    if (plot_bands .and. kpath_bands_colour=='spin' .and. &
+         (.not.SS_R_done) )  call get_SS_R (SS_R_done)
+    if (plot_bands) then 
+       if(index(berry_task,'morb').AND.(.not.morb_R_done)) then
+          call get_morb_R (ahc_R_done,morb_R_done)  !HH_R is included
+       elseif((index(berry_task,'ahc').OR.index(berry_task,'kubo')).AND.&
+          (.not.ahc_R_done)) then
+          call get_ahc_R (ahc_R_done,morb_R_done)  !HH_R is included
+       else
+          call get_HH_R
+       endif
     endif
-    if(plot_morb) then
-       call get_BB_R
-       call get_CC_R
-    endif
-    if(plot_bands .and. kpath_bands_colour=='spin') call get_SS_R
+
+    if (plot_morb .and. (.not.morb_R_done)) &
+           call get_morb_R (ahc_R_done, morb_R_done)
+
+    if (plot_curv .and. (.not.ahc_R_done) ) &
+           call get_ahc_R (ahc_R_done, morb_R_done) 
+    !this order because morb contains ahc
+
+
 
     if(on_root) then
 

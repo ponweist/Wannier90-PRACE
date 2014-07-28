@@ -27,7 +27,7 @@ module w90_spin
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine get_spin_moment
+  subroutine get_spin_moment (ahc_R_done, SS_R_done)
   !============================================================!
   !                                                            !
   ! Computes the spin magnetic moment by Wannier interpolation !
@@ -45,11 +45,12 @@ module w90_spin
     integer       :: loop_x,loop_y,loop_z,loop_tot
     real(kind=dp) :: kweight,kpt(3),spn_k(3),spn_all(3),&
                      spn_mom(3),magnitude,theta,phi,conv
+    logical        :: ahc_R_done, SS_R_done
 
     if(nfermi>1) call io_error('Routine get_spin_moment requires nfermi=1')
 
-    call get_HH_R
-    call get_SS_R
+    if( .not.ahc_R_done)  call get_HH_R
+    if(.not. SS_R_done) call get_SS_R (SS_R_done)
 
     if(on_root) then
        write(stdout,'(/,/,1x,a)') '------------'

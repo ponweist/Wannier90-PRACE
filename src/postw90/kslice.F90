@@ -41,7 +41,7 @@ module w90_kslice
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine k_slice
+  subroutine k_slice (ahc_R_done, morb_R_done, SS_R_done)
 
     use w90_comms
     use w90_constants,  only     : dp,twopi,eps8
@@ -54,9 +54,12 @@ module w90_kslice
                                    kslice_b2,kslice_fermi_level,&
                                    found_kslice_fermi_level,&
                                    kslice_fermi_lines_colour,recip_lattice,&
-                                   nfermi,fermi_energy_list,berry_curv_unit
+                                   nfermi,fermi_energy_list,berry_curv_unit,&
+                                   kpath_bands_colour,spin_decomp,berry_task
+
     use w90_get_oper, only       : get_HH_R,HH_R,get_AA_R,get_BB_R,get_CC_R,&
-                                   get_SS_R
+                                   get_SS_R, get_ahc_R, get_morb_R
+
     use w90_wan_ham, only        : get_eig_deleig
     use w90_spin, only           : get_spin_nk
     use w90_berry, only          : get_imf_k_list,get_imfgh_k_list
@@ -71,8 +74,10 @@ module w90_kslice
                          imh_k_list(3,3,nfermi),Morb_k(3,3),curv(3),morb(3),&
                          spn_k(num_wann),del_eig(num_wann,3),Delta_k,Delta_E,&
                          zhat(3),vdum(3),db1,db2
+
     logical           :: plot_fermi_lines,plot_curv,plot_morb,fermi_lines_color,&
-                         heatmap
+                         heatmap, ahc_R_done, morb_R_done, SS_R_done
+
     character(len=40) :: filename,square
 
     integer,          allocatable :: bnddataunit(:)
@@ -100,13 +105,34 @@ module w90_kslice
          call io_error('Error: spin-colored Fermi lines not allowed in '&
          //'curv/morb heatmap plots') 
 
-    call get_HH_R
-    if(plot_curv.or.plot_morb) call get_AA_R
-    if(plot_morb) then
-       call get_BB_R
-       call get_CC_R
+    !call get_HH_R
+    !if(plot_curv.or.plot_morb) call get_AA_R
+    !if(plot_morb) then
+    !   call get_BB_R
+    !   call get_CC_R
+    !endif
+    !if(plot_fermi_lines .and. kslice_fermi_lines_colour=='spin') call get_SS_R
+
+    !get_SS_R first because of v_matrix deallocation
+    if (plot_fermi_lines .and. kslice_fermi_lines_colour=='spin' .and. &
+         (.not.SS_R_done) )  call get_SS_R (SS_R_done)
+    if (plot_fermi_lines) then
+       if(index(berry_task,'morb').AND.(.not.morb_R_done)) then
+          call get_morb_R (ahc_R_done,morb_R_done)  !HH_R is included
+       elseif((index(berry_task,'ahc').OR.index(berry_task,'kubo')).AND.&
+          (.not.ahc_R_done)) then
+          call get_ahc_R (ahc_R_done,morb_R_done)  !HH_R is included
+       else
+          call get_HH_R
+       endif
     endif
-    if(plot_fermi_lines .and. kslice_fermi_lines_colour=='spin') call get_SS_R
+
+    if(plot_morb .and. (.not.morb_R_done)) &
+           call get_morb_R (ahc_R_done, morb_R_done)
+    !this order because get_morb_R contains get_ahc_R
+    if(plot_curv .and. (.not.ahc_R_done) ) &
+           call get_ahc_R (ahc_R_done, morb_R_done) 
+
 
     if(on_root) then
 
