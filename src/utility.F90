@@ -32,11 +32,14 @@ module w90_utility
   public :: utility_zgemm
   public :: utility_translate_home
   public :: utility_rotate
+  public :: utility_rotate_old
   public :: utility_matmul_diag
   public :: utility_rotate_diag
   public :: utility_commutator_diag
   public :: utility_re_tr
+  public :: utility_re_tr_prod
   public :: utility_im_tr
+  public :: utility_im_tr_prod
   public :: w0gauss
   public :: wgauss
   public :: utility_diagonalize
@@ -554,7 +557,9 @@ contains
   end subroutine utility_diagonalize
 
   !===========================================================!
-  function utility_rotate(mat,rot,dim)
+  !FIXME: Delete this function and consistently use subroutine
+  !       utility_rotate
+  function utility_rotate_old(mat,rot,dim)
     !==========================================================!
     !                                                           !
     ! Rotates the dim x dim matrix 'mat' according to           !
@@ -565,13 +570,53 @@ contains
     use w90_constants, only : dp
 
     integer          :: dim
-    complex(kind=dp) :: utility_rotate(dim,dim)
+    complex(kind=dp) :: utility_rotate_old(dim,dim)
     complex(kind=dp) :: mat(dim,dim)
     complex(kind=dp) :: rot(dim,dim)
 
-    utility_rotate=matmul(matmul(transpose(conjg(rot)),mat),rot)
+    utility_rotate_old=matmul(matmul(transpose(conjg(rot)),mat),rot)
 
-  end function utility_rotate
+  end function utility_rotate_old
+
+  !===========================================================!
+  subroutine utility_rotate(mat,rot,N,reverse)
+    !==============================================================!
+    !                                                              !
+    ! Rotates the N x N matrix 'mat' according to                  !
+    ! * (rot)^dagger.mat.rot (reverse = .false. or not present) OR !
+    ! * rot.mat.(rot)^dagger (reverse = .true.),                   !
+    ! where 'rot' is a unitary matrix.                             !
+    ! The matrix 'mat' is overwritten.                             !
+    !                                                              !
+    !==============================================================!
+
+    use w90_constants, only : dp
+    use blas95, only : gemm
+
+    integer, intent(in)             :: N
+    logical, optional, intent(in)   :: reverse
+    complex(kind=dp), intent(inout) :: mat(N,N)
+    complex(kind=dp), intent(in)    :: rot(N,N)
+    complex(kind=dp)                :: tmp(N,N)
+    logical                         :: rev
+
+    if(.not. present(reverse)) then
+       rev = .false.
+    else
+       rev = reverse
+    end if
+     
+
+    if(rev) then
+       call gemm(rot, mat, tmp, 'N','C')
+       call gemm(rot, tmp, mat, 'N','C')
+    else 
+       call gemm(mat, rot, tmp, 'C','N')
+       call gemm(tmp, rot, mat, 'C','N')
+    end if
+
+  end subroutine utility_rotate
+
 
   !===========================================================!
   function utility_matmul_diag(mat1,mat2,dim)
@@ -642,6 +687,61 @@ contains
 
   end function utility_commutator_diag
 
+  !===================================================!
+  function utility_re_tr_prod(a,b)
+     !================================================!
+     !                                                !
+     ! Return Re(tr(a.b)), i.e. the real part of the  !
+     ! trace of the matrix product of a and b.        !
+     !                                                !
+     !================================================!
+    use w90_constants, only  : dp,cmplx_0,cmplx_i
+
+
+    complex(kind=dp), dimension(:,:), intent(in) :: a, b
+    real(kind=dp) :: utility_re_tr_prod
+    real(kind=dp) :: s
+    integer       :: i, j, n, m
+
+    n = min(size(a,1),size(b,2))
+    m = min(size(a,2),size(b,1))
+    
+    s = 0
+    do i=1,n
+      do j=1,m
+        s = s + dble(a(i,j) * b(j,i))
+      end do
+    end do
+    utility_re_tr_prod = s
+  end function
+
+  !===================================================!
+  function utility_im_tr_prod(a,b)
+     !====================================================!
+     !                                                    !
+     ! Return Im(tr(a.b)), i.e. the imaginary part of the !
+     ! trace of the matrix product of a and b.            !
+     !                                                    !
+     !====================================================!
+    use w90_constants, only  : dp,cmplx_0,cmplx_i
+
+    complex(kind=dp), dimension(:,:), intent(in) :: a, b
+
+    real(kind=dp) :: utility_im_tr_prod
+    real(kind=dp) :: s
+    integer       :: i, j, n, m
+
+    n = min(size(a,1),size(b,2))
+    m = min(size(a,2),size(b,1))
+    
+    s = 0
+    do i=1,n
+      do j=1,m
+        s = s + aimag(a(i,j) * b(j,i))
+      end do
+    end do
+    utility_im_tr_prod = s
+  end function
 
   !===================================================!
   function utility_re_tr(mat)

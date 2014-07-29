@@ -1007,7 +1007,7 @@ module w90_berry
   !====================================================================!
 
     use w90_constants, only      : dp,cmplx_0,cmplx_i,pi
-    use w90_utility, only        : utility_diagonalize,utility_rotate,w0gauss
+    use w90_utility, only        : utility_diagonalize,utility_rotate_old,w0gauss
     use w90_parameters, only     : num_wann,kubo_nfreq,kubo_freq_list,&
                                    fermi_energy_list,kubo_eigval_max,&
                                    kubo_adpt_smr,kubo_smr_fixed_en_width,&
@@ -1069,7 +1069,7 @@ module w90_berry
 
     call fourier_R_to_k_vec(kpt,AA_R,OO_true=AA)
     do i=1,3
-       AA(:,:,i)=utility_rotate(AA(:,:,i),UU,num_wann)
+       AA(:,:,i)=utility_rotate_old(AA(:,:,i),UU,num_wann)
     enddo
     AA=AA+cmplx_i*D_h ! Eq.(25) WYSV06
 

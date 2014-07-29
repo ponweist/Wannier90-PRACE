@@ -19,7 +19,7 @@ module w90_wan_ham
 
     use w90_constants, only      : dp,cmplx_0
     use w90_parameters, only     : num_wann
-    use w90_utility, only        : utility_rotate
+    use w90_utility, only        : utility_rotate_old
     use w90_postw90_common, only : get_occ
 
     ! Arguments
@@ -37,7 +37,7 @@ module w90_wan_ham
     call get_occ(eig,occ,ef)
 
     allocate(delHH_a_bar(num_wann,num_wann))
-    delHH_a_bar=utility_rotate(delHH_a,UU,num_wann)
+    delHH_a_bar=utility_rotate_old(delHH_a,UU,num_wann)
     do m=1,num_wann
        do n=1,num_wann
           if(occ(n)>0.999_dp.and.occ(m)<0.001_dp) then
@@ -65,7 +65,7 @@ module w90_wan_ham
 
     use w90_constants, only     : dp,cmplx_0
     use w90_parameters, only    : num_wann
-    use w90_utility, only       : utility_rotate
+    use w90_utility, only       : utility_rotate_old
 
     ! Arguments
     !
@@ -80,7 +80,7 @@ module w90_wan_ham
     allocate(delHH_bar_i(num_wann,num_wann))
     D_h=cmplx_0
     do i=1,3
-       delHH_bar_i(:,:)=utility_rotate(delHH(:,:,i),UU,num_wann)
+       delHH_bar_i(:,:)=utility_rotate_old(delHH(:,:,i),UU,num_wann)
        do m=1,num_wann
           do n=1,num_wann
              if(n==m .or. abs(eig(m)-eig(n))<1.0e-7_dp) cycle
@@ -91,90 +91,50 @@ module w90_wan_ham
 
   end subroutine get_D_h
 
-
-  subroutine get_JJp_list(delHH,UU,eig,JJp_list)
-  !====================================!
-  !                                    !
-  ! Compute JJ^+_a (a=Cartesian index) !
-  ! for a list of Fermi energies       !
-  !                                    !
-  !====================================!
+  subroutine get_JJp_JJm_list(delHH,UU,eig,JJp_list,JJm_list)
+  !===============================================!
+  !                                               !
+  ! Compute JJ^+_a and JJ^-_a (a=Cartesian index) !
+  ! for a list of Fermi energies                  !
+  !                                               !
+  !===============================================!
 
     use w90_constants, only  : dp,cmplx_0,cmplx_i
     use w90_parameters, only : num_wann,nfermi,fermi_energy_list
     use w90_utility, only    : utility_rotate
 
-    complex(kind=dp), dimension(:,:), intent(in)    :: delHH
+    complex(kind=dp), dimension(:,:), intent(inout) :: delHH
     complex(kind=dp), dimension(:,:), intent(in)    :: UU
     real(kind=dp),    dimension(:),   intent(in)    :: eig
     complex(kind=dp), dimension(:,:,:), intent(out) :: JJp_list
-
-    complex(kind=dp), allocatable :: delHH_bar(:,:)
-    integer                       :: n,m,if
-
-    allocate(delHH_bar(num_wann,num_wann))
-    delHH_bar=utility_rotate(delHH,UU,num_wann)
-    do if=1,nfermi
-       do m=1,num_wann
-          do n=1,num_wann
-             if(eig(n)>fermi_energy_list(if) .and.&
-                  eig(m)<fermi_energy_list(if)) then
-                JJp_list(n,m,if)=cmplx_i*delHH_bar(n,m)/(eig(m)-eig(n))
-             else
-                JJp_list(n,m,if)=cmplx_0
-             end if
-          enddo
-       end do
-    end do
-    do if=1,nfermi
-       JJp_list(:,:,if)=&
-            utility_rotate(JJp_list(:,:,if),conjg(transpose(UU)),num_wann)
-    enddo
-
-  end subroutine get_JJp_list
-
-
-  subroutine get_JJm_list(delHH,UU,eig,JJm_list)
-  !====================================!
-  !                                    !
-  ! Compute JJ^-_a (a=Cartesian index) !
-  ! for a list of Fermi energies       !
-  !                                    !
-  !====================================!
-
-    use w90_constants, only  : dp,cmplx_0,cmplx_i
-    use w90_parameters, only : num_wann,nfermi,fermi_energy_list
-    use w90_utility, only    : utility_rotate
-
-    complex(kind=dp), dimension(:,:), intent(in)   :: delHH
-    complex(kind=dp), dimension(:,:), intent(in)   :: UU
-    real(kind=dp),    dimension(:),   intent(in)   :: eig
     complex(kind=dp), dimension(:,:,:), intent(out) :: JJm_list
 
-    complex(kind=dp), allocatable :: delHH_bar(:,:)
-    integer                       :: n,m,if
+    integer                       :: n,m,ife
+    real(kind=dp)                 :: fe
 
-    allocate(delHH_bar(num_wann,num_wann))
-    delHH_bar=utility_rotate(delHH,UU,num_wann)
-    do if=1,nfermi
+    call utility_rotate(delHH,UU,num_wann)
+    do ife=1,nfermi
+       fe = fermi_energy_list(ife)
        do m=1,num_wann
           do n=1,num_wann
-             if(eig(m)>fermi_energy_list(if) .and.&
-                  eig(n)<fermi_energy_list(if)) then
-                JJm_list(n,m,if)=cmplx_i*delHH_bar(n,m)/(eig(m)-eig(n))
+             if(eig(n)>fe .and. eig(m)<fe) then
+                JJp_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
              else
-                JJm_list(n,m,if)=cmplx_0
+                JJp_list(n,m,ife)=cmplx_0
+             end if
+
+             if(eig(m)>fe .and. eig(n)<fe) then
+                JJm_list(n,m,ife)=cmplx_i*delHH(n,m)/(eig(m)-eig(n))
+             else
+                JJm_list(n,m,ife)=cmplx_0
              end if
           enddo
        end do
+       call utility_rotate(JJp_list(:,:,ife),UU,num_wann,reverse=.true.)
+       call utility_rotate(JJm_list(:,:,ife),UU,num_wann,reverse=.true.)
     end do
-    do if=1,nfermi
-       JJm_list(:,:,if)=&
-            utility_rotate(JJm_list(:,:,if),conjg(transpose(UU)),num_wann)
-    enddo
 
-  end subroutine get_JJm_list
-
+  end subroutine get_JJp_JJm_list
 
   subroutine get_occ_mat_list(eig,UU,f_list,g_list)
   !================================!
@@ -226,7 +186,7 @@ module w90_wan_ham
   !==========================!
 
     use w90_constants, only  : dp,cmplx_0,cmplx_i
-    use w90_utility, only    : utility_diagonalize,utility_rotate,&
+    use w90_utility, only    : utility_diagonalize,utility_rotate_old,&
                                utility_rotate_diag
     use w90_parameters, only : num_wann,use_degen_pert,degen_thr
 
@@ -248,7 +208,7 @@ module w90_wan_ham
     
     if(use_degen_pert) then
        
-       delHH_bar_a=utility_rotate(delHH_a,UU,num_wann)
+       delHH_bar_a=utility_rotate_old(delHH_a,UU,num_wann)
        
        ! Assuming that the energy eigenvalues are stored in eig(:) in
        ! increasing order (diff >= 0)
@@ -387,8 +347,9 @@ module w90_wan_ham
                                      OO_dz=delHH(:,:,3))
     call utility_diagonalize(HH,num_wann,eig,UU) 
     do i=1,3
-       call get_JJp_list(delHH(:,:,i),UU,eig,JJp_list(:,:,:,i))
-       call get_JJm_list(delHH(:,:,i),UU,eig,JJm_list(:,:,:,i))
+       call get_JJp_JJm_list(delHH(:,:,i),UU,eig,JJp_list(:,:,:,i),JJm_list(:,:,:,i))
+       !call get_JJp_list(delHH(:,:,i),UU,eig,JJp_list(:,:,:,i))
+       !call get_JJm_list(delHH(:,:,i),UU,eig,JJm_list(:,:,:,i))
     enddo
 
   end subroutine get_eig_UU_HH_JJlist
