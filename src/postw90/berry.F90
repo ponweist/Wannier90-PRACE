@@ -791,6 +791,7 @@ module w90_berry
     use w90_postw90_common, only : fourier_R_to_k_vec,fourier_R_to_k
     use w90_wan_ham, only        : get_eig_UU_HH_JJlist,get_occ_mat_list
     use w90_get_oper, only       : AA_R,BB_R,CC_R
+    use blas95, only             : gemm
 
     ! Arguments
     !
@@ -883,12 +884,14 @@ module w90_berry
         LLambda_i=cmplx_i*(CC(:,:,alpha_A(i),beta_A(i))&
                  -conjg(transpose(CC(:,:,alpha_A(i),beta_A(i)))))
         do ife=1,nfermi
-          tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
-                       matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
-
+          !tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
+          !             matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
+          call gemm(f_list(:,:,ife),    AA(:,:,beta_A(i)), tmp(:,:,1))
+          call gemm(AA(:,:,alpha_A(i)), tmp(:,:,1),        tmp(:,:,2))
+          call gemm(HH,                 tmp(:,:,2),        tmp(:,:,1))
 
           img_k_list(1,i,ife) = utility_re_tr_prod(f_list(:,:,ife),LLambda_i) &
-            -2.0_dp * utility_im_tr_prod(f_list(:,:,ife),tmp(:,:,1))
+            -2.0_dp * utility_im_tr_prod(f_list(:,:,ife), tmp(:,:,1))
           !
           ! J1 term
           img_k_list(2,i,ife) = -2.0_dp * &
@@ -898,7 +901,7 @@ module w90_berry
           )
           !
           ! J2 term
-          tmp(:,:,1) = matmul(HH,JJp_list(:,:,ife,beta_A(i)))
+          call gemm(HH, JJp_list(:,:,ife,beta_A(i)), tmp(:,:,1))
 
           img_k_list(3,i,ife) = -2.0_dp * &
              utility_im_tr_prod(JJm_list(:,:,ife,alpha_A(i)), tmp(:,:,1))
@@ -916,25 +919,30 @@ module w90_berry
         do i=1,3
           !
           ! J0 term
-          tmp(:,:,1) = matmul(HH,OOmega(:,:,i))
+          call gemm(HH, OOmega(:,:,i), tmp(:,:,1))
           s = utility_re_tr_prod(f_list(:,:,ife),tmp(:,:,1))
                      
-          tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
-                 matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
+          !FIXME: The same matrix product has already been calculated above!
+          !tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
+          !             matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
+          call gemm(f_list(:,:,ife),    AA(:,:,beta_A(i)), tmp(:,:,1))
+          call gemm(AA(:,:,alpha_A(i)), tmp(:,:,1),        tmp(:,:,2))
+          call gemm(HH,                 tmp(:,:,2),        tmp(:,:,1))
+          
           imh_k_list(1,i,ife) = s + 2.0_dp * &
-              utility_im_tr_prod(f_list(:,:,ife),tmp(:,:,1))
+              utility_im_tr_prod(f_list(:,:,ife), tmp(:,:,1))
           !
           ! J1 term
-          tmp(:,:,1) = matmul(AA(:,:,alpha_A(i)),JJp_list(:,:,ife,beta_A(i)))
+          call gemm(AA(:,:,alpha_A(i)), JJp_list(:,:,ife,beta_A(i)), tmp(:,:,1))
           s = utility_im_tr_prod(HH, tmp(:,:,1))
-          tmp(:,:,1) = matmul(JJm_list(:,:,ife,alpha_A(i)),AA(:,:,beta_A(i)))
+          call gemm(JJm_list(:,:,ife,alpha_A(i)), AA(:,:,beta_A(i)), tmp(:,:,1))
           s = s + &
               utility_im_tr_prod(HH, tmp(:,:,1))
           imh_k_list(2,i,ife) = -2.0_dp * s
           !
           ! J2 term
-          tmp(:,:,1) = matmul(JJm_list(:,:,ife,alpha_A(i)),&
-               JJp_list(:,:,ife,beta_A(i)))
+          call gemm(JJm_list(:,:,ife,alpha_A(i)), &
+                    JJp_list(:,:,ife,beta_A(i)), tmp(:,:,1))
           imh_k_list(3,i,ife) = -2.0_dp * &
               utility_im_tr_prod(HH, tmp(:,:,1))
         end do
