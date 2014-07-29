@@ -52,7 +52,7 @@ contains
 !                                   get_FF_R,get_SS_R
 
     use w90_spin, only           : get_spin_nk
-    use w90_berry, only          : get_imf_k_list,get_imfgh_k_list
+    use w90_berry, only          : get_imfgh_k_list
     use w90_constants, only      : bohr
 
     integer           :: i,j,n,num_paths,num_spts,loop_path,loop_kpt,&
@@ -279,7 +279,7 @@ contains
           endif
 
           if(plot_curv) then
-             call get_imf_k_list(kpt,imf_k_list)
+             call get_imfgh_k_list(kpt,imf_k_list)
              curv(loop_kpt,1)=sum(imf_k_list(:,1,1))
              curv(loop_kpt,2)=sum(imf_k_list(:,2,1))
              curv(loop_kpt,3)=sum(imf_k_list(:,3,1))
