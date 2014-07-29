@@ -786,7 +786,7 @@ module w90_berry
   !=========================================================!
 
     use w90_constants, only      : dp,cmplx_0,cmplx_i
-    use w90_utility, only        : utility_re_tr,utility_im_tr
+    use w90_utility, only        : utility_re_tr_prod,utility_im_tr_prod
     use w90_parameters, only     : num_wann,nfermi
     use w90_postw90_common, only : fourier_R_to_k_vec,fourier_R_to_k
     use w90_wan_ham, only        : get_eig_UU_HH_JJlist,get_occ_mat_list
@@ -811,9 +811,13 @@ module w90_berry
     complex(kind=dp), allocatable :: LLambda_i(:,:)
     complex(kind=dp), allocatable :: JJp_list(:,:,:,:)
     complex(kind=dp), allocatable :: JJm_list(:,:,:,:)
-    complex(kind=dp), allocatable :: mdum(:,:)
     real(kind=dp)                 :: eig(num_wann)
     integer                       :: i,j,ife
+    real(kind=dp)                 :: s
+
+    ! Temporary space for matrix products
+    !TODO: use BLAS for products
+    complex(kind=dp), allocatable, dimension(:,:,:) :: tmp
 
     allocate(HH(num_wann,num_wann))
     allocate(UU(num_wann,num_wann))
@@ -823,7 +827,6 @@ module w90_berry
     allocate(JJm_list(num_wann,num_wann,nfermi,3))
     allocate(AA(num_wann,num_wann,3))
     allocate(OOmega(num_wann,num_wann,3))
-    allocate(mdum(num_wann,num_wann))
 
     ! Gather W-gauge matrix objects
     !
@@ -839,18 +842,19 @@ module w90_berry
         do i=1,3
           !
           ! J0 term (Omega_bar term of WYSV06)
-          mdum=matmul(f_list(:,:,ife),OOmega(:,:,i))
-          imf_k_list(1,i,ife)=utility_re_tr(mdum)
+          imf_k_list(1,i,ife) = &
+             utility_re_tr_prod(f_list(:,:,ife), OOmega(:,:,i))
           !
           ! J1 term (DA term of WYSV06)
-          mdum =matmul(AA(:,:,alpha_A(i)),JJp_list(:,:,ife,beta_A(i)))&
-               +matmul(JJm_list(:,:,ife,alpha_A(i)),AA(:,:,beta_A(i)))
-          imf_k_list(2,i,ife)=-2.0_dp*utility_im_tr(mdum)
+          imf_k_list(2,i,ife) = -2.0_dp * &
+          ( &
+              utility_im_tr_prod(AA(:,:,alpha_A(i)), JJp_list(:,:,ife,beta_A(i))) &
+            + utility_im_tr_prod(JJm_list(:,:,ife,alpha_A(i)), AA(:,:,beta_A(i))) &
+          )
           !
           ! J2 term (DD of WYSV06)
-          mdum=matmul(JJm_list(:,:,ife,alpha_A(i)),JJp_list(:,:,ife,beta_A(i)))
-          imf_k_list(3,i,ife)=-2.0_dp*utility_im_tr(mdum)
-          !
+          imf_k_list(3,i,ife) = -2.0_dp * &
+            utility_im_tr_prod(JJm_list(:,:,ife,alpha_A(i)),JJp_list(:,:,ife,beta_A(i)))
         end do
       end do
     end if
@@ -859,6 +863,8 @@ module w90_berry
       allocate(BB(num_wann,num_wann,3))
       allocate(CC(num_wann,num_wann,3,3))
       allocate(LLambda_i(num_wann,num_wann))
+
+      allocate(tmp(num_wann,num_wann,2))
 
       call fourier_R_to_k_vec(kpt,BB_R,OO_true=BB)
       do j=1,3
@@ -877,50 +883,63 @@ module w90_berry
         LLambda_i=cmplx_i*(CC(:,:,alpha_A(i),beta_A(i))&
                  -conjg(transpose(CC(:,:,alpha_A(i),beta_A(i)))))
         do ife=1,nfermi
-          mdum=matmul(f_list(:,:,ife),LLambda_i)
-          img_k_list(1,i,ife)=utility_re_tr(mdum)
-          mdum=matmul(f_list(:,:,ife),matmul(HH,matmul(AA(:,:,alpha_A(i)),&
-               matmul(f_list(:,:,ife),AA(:,:,beta_A(i))))))
-          img_k_list(1,i,ife)=img_k_list(1,i,ife)-2.0_dp*utility_im_tr(mdum)
+          tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
+                       matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
+
+
+          img_k_list(1,i,ife) = utility_re_tr_prod(f_list(:,:,ife),LLambda_i) &
+            -2.0_dp * utility_im_tr_prod(f_list(:,:,ife),tmp(:,:,1))
           !
           ! J1 term
-          mdum=matmul(JJm_list(:,:,ife,alpha_A(i)),BB(:,:,beta_A(i)))&
-               -matmul(JJm_list(:,:,ife,beta_A(i)),BB(:,:,alpha_A(i)))
-          img_k_list(2,i,ife)=-2.0_dp*utility_im_tr(mdum)
+          img_k_list(2,i,ife) = -2.0_dp * &
+          ( &
+              utility_im_tr_prod(JJm_list(:,:,ife,alpha_A(i)),BB(:,:,beta_A(i))) &
+            - utility_im_tr_prod(JJm_list(:,:,ife,beta_A(i)),BB(:,:,alpha_A(i))) &
+          )
           !
           ! J2 term
-          mdum=matmul(JJm_list(:,:,ife,alpha_A(i)),&
-               matmul(HH,JJp_list(:,:,ife,beta_A(i))))
-          img_k_list(3,i,ife)=-2.0_dp*utility_im_tr(mdum)
+          tmp(:,:,1) = matmul(HH,JJp_list(:,:,ife,beta_A(i)))
+
+          img_k_list(3,i,ife) = -2.0_dp * &
+             utility_im_tr_prod(JJm_list(:,:,ife,alpha_A(i)), tmp(:,:,1))
         end do
       end do
+      deallocate(tmp)
     end if
 
     if(present(imh_k_list)) then
+      allocate(tmp(num_wann,num_wann,2))
+      
       ! Trace formula for -2Im[h], Eq.(56) LVTS12
       !
       do ife=1,nfermi
         do i=1,3
           !
           ! J0 term
-          mdum=matmul(f_list(:,:,ife),matmul(HH,OOmega(:,:,i)))
-          imh_k_list(1,i,ife)=utility_re_tr(mdum)
-          mdum=matmul(f_list(:,:,ife),matmul(HH,matmul(AA(:,:,alpha_A(i)),&
-               matmul(f_list(:,:,ife),AA(:,:,beta_A(i))))))
-          imh_k_list(1,i,ife)=imh_k_list(1,i,ife)+2.0_dp*utility_im_tr(mdum)
+          tmp(:,:,1) = matmul(HH,OOmega(:,:,i))
+          s = utility_re_tr_prod(f_list(:,:,ife),tmp(:,:,1))
+                     
+          tmp(:,:,1) = matmul(HH,matmul(AA(:,:,alpha_A(i)),&
+                 matmul(f_list(:,:,ife),AA(:,:,beta_A(i)))))
+          imh_k_list(1,i,ife) = s + 2.0_dp * &
+              utility_im_tr_prod(f_list(:,:,ife),tmp(:,:,1))
           !
           ! J1 term
-          mdum=matmul(HH,matmul(AA(:,:,alpha_A(i)),JJp_list(:,:,ife,beta_A(i))))&
-              +matmul(HH,matmul(JJm_list(:,:,ife,alpha_A(i)),AA(:,:,beta_A(i))))
-          imh_k_list(2,i,ife)=-2.0_dp*utility_im_tr(mdum)
+          tmp(:,:,1) = matmul(AA(:,:,alpha_A(i)),JJp_list(:,:,ife,beta_A(i)))
+          s = utility_im_tr_prod(HH, tmp(:,:,1))
+          tmp(:,:,1) = matmul(JJm_list(:,:,ife,alpha_A(i)),AA(:,:,beta_A(i)))
+          s = s + &
+              utility_im_tr_prod(HH, tmp(:,:,1))
+          imh_k_list(2,i,ife) = -2.0_dp * s
           !
           ! J2 term
-          mdum=matmul(HH,matmul(JJm_list(:,:,ife,alpha_A(i)),&
-               JJp_list(:,:,ife,beta_A(i))))
-          imh_k_list(3,i,ife)=-2.0_dp*utility_im_tr(mdum)
-          !
+          tmp(:,:,1) = matmul(JJm_list(:,:,ife,alpha_A(i)),&
+               JJp_list(:,:,ife,beta_A(i)))
+          imh_k_list(3,i,ife) = -2.0_dp * &
+              utility_im_tr_prod(HH, tmp(:,:,1))
         end do
       end do
+      deallocate(tmp)
     end if
 
   end subroutine get_imfgh_k_list
