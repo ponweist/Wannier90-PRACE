@@ -41,7 +41,7 @@ module w90_kslice
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine k_slice (ahc_R_done, morb_R_done, SS_R_done)
+  subroutine k_slice 
 
     use w90_comms
     use w90_constants,  only     : dp,twopi,eps8
@@ -76,7 +76,7 @@ module w90_kslice
                          zhat(3),vdum(3),db1,db2
 
     logical           :: plot_fermi_lines,plot_curv,plot_morb,fermi_lines_color,&
-                         heatmap, ahc_R_done, morb_R_done, SS_R_done
+                         heatmap
 
     character(len=40) :: filename,square
 
@@ -114,24 +114,19 @@ module w90_kslice
     !if(plot_fermi_lines .and. kslice_fermi_lines_colour=='spin') call get_SS_R
 
     !get_SS_R first because of v_matrix deallocation
-    if (plot_fermi_lines .and. kslice_fermi_lines_colour=='spin' .and. &
-         (.not.SS_R_done) )  call get_SS_R (SS_R_done)
+    if (plot_fermi_lines .and. kslice_fermi_lines_colour=='spin')  call get_SS_R  
     if (plot_fermi_lines) then
-       if(index(berry_task,'morb').AND.(.not.morb_R_done)) then
-          call get_morb_R (ahc_R_done,morb_R_done)  !HH_R is included
-       elseif((index(berry_task,'ahc').OR.index(berry_task,'kubo')).AND.&
-          (.not.ahc_R_done)) then
-          call get_ahc_R (ahc_R_done,morb_R_done)  !HH_R is included
+       if(index(berry_task,'morb')>0) then
+          call get_morb_R   !HH_R is included
+       elseif((index(berry_task,'ahc')>0).OR.(index(berry_task,'kubo')>0)) then
+          call get_ahc_R  !HH_R is included
        else
           call get_HH_R
        endif
     endif
 
-    if(plot_morb .and. (.not.morb_R_done)) &
-           call get_morb_R (ahc_R_done, morb_R_done)
-    !this order because get_morb_R contains get_ahc_R
-    if(plot_curv .and. (.not.ahc_R_done) ) &
-           call get_ahc_R (ahc_R_done, morb_R_done) 
+    if(plot_morb)   call get_morb_R 
+    if(plot_curv)   call get_ahc_R 
 
 
     if(on_root) then

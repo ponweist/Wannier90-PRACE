@@ -38,7 +38,7 @@ program postw90
   logical       :: have_gamma
   real(kind=dp) :: time0,time1,time2
   character(len=9) :: stat,pos
-  logical :: wpout_found, werr_found, ahc_R_done, morb_R_done, SS_R_done 
+  logical :: wpout_found, werr_found 
 
   ! Put some descriptive comments here
   !
@@ -167,9 +167,6 @@ program postw90
 
   ! Now perform one or more of the following tasks
 
-  ahc_R_done   = .false.
-  morb_R_done  = .false.
-  SS_R_done    = .false.
 
 ! find_fermi_level commented for the moment in dos.F90
 !  if(dos .and. index(dos_task,'find_fermi_energy')>0) call find_fermi_level
@@ -178,13 +175,13 @@ program postw90
   ! Bands, Berry curvature, or orbital magnetization plot along a k-path
   ! --------------------------------------------------------------------
   !
-  if(kpath) call k_path (ahc_R_done, morb_R_done, SS_R_done)
+  if(kpath) call k_path 
 
   ! ---------------------------------------------------------------------------
   ! Bands, Berry curvature, or orbital magnetization plot on a slice in k-space
   ! ---------------------------------------------------------------------------
   !
-  if(kslice) call k_slice (ahc_R_done, morb_R_done, SS_R_done)
+  if(kslice) call k_slice
 
   ! -------------------------------------------------------------------
   ! dc Anomalous Hall conductivity and eventually (if 'mcd' string also 
@@ -204,7 +201,7 @@ program postw90
   ! Orbital magnetization
   ! -----------------------------------------------------------------
   !
-  if(berry) call berry_main (ahc_R_done, morb_R_done, SS_R_done)
+  if(berry) call berry_main
   ! -----------------------------------------------------------------
   ! Boltzmann transport coefficients (BoltzWann module)
   ! -----------------------------------------------------------------
@@ -213,12 +210,12 @@ program postw90
   ! Spin magnetic moment
   ! --------------------
   !
-  if(spin_moment) call get_spin_moment (ahc_R_done, SS_R_done)
+  if(spin_moment) call get_spin_moment
   ! ---------------------------------------------------------------
   ! Density of states calculated using a uniform interpolation mesh
   ! ---------------------------------------------------------------
   !
-  if(dos .and. index(dos_task,'dos_plot')>0) call dos_main (ahc_R_done, SS_R_done)
+  if(dos .and. index(dos_task,'dos_plot')>0) call dos_main 
 
 
 

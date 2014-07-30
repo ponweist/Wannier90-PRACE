@@ -33,7 +33,7 @@ contains
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine k_path (ahc_R_done, morb_R_done, SS_R_done)
+  subroutine k_path 
 
     use w90_comms
     use w90_constants,  only     : dp,cmplx_0,cmplx_i,twopi,eps8
@@ -62,8 +62,7 @@ contains
                          imf_k_list(3,3,nfermi),img_k_list(3,3,nfermi),&
                          imh_k_list(3,3,nfermi),Morb_k(3,3),&
                          kpath_len(bands_num_spec_points/2),range
-    logical           :: plot_bands,plot_curv,plot_morb, &
-                         ahc_R_done, morb_R_done, SS_R_done
+    logical           :: plot_bands,plot_curv,plot_morb
     character(len=20) :: file_name
 
     complex(kind=dp), allocatable :: HH(:,:)
@@ -104,26 +103,19 @@ contains
 !        since it needs v_matrix which is deallocated in 
 !        get_ahc_R, morb routines
 
-    if (plot_bands .and. kpath_bands_colour=='spin' .and. &
-         (.not.SS_R_done) )  call get_SS_R (SS_R_done)
+    if (plot_bands .and. kpath_bands_colour=='spin' ) call get_SS_R
     if (plot_bands) then 
-       if(index(berry_task,'morb').AND.(.not.morb_R_done)) then
-          call get_morb_R (ahc_R_done,morb_R_done)  !HH_R is included
-       elseif((index(berry_task,'ahc').OR.index(berry_task,'kubo')).AND.&
-          (.not.ahc_R_done)) then
-          call get_ahc_R (ahc_R_done,morb_R_done)  !HH_R is included
+       if(index(berry_task,'morb')>0) then
+          call get_morb_R !HH_R is included
+       elseif((index(berry_task,'ahc')>0).OR.(index(berry_task,'kubo')>0)) then
+          call get_ahc_R   !HH_R is included
        else
           call get_HH_R
        endif
     endif
 
-    if (plot_morb .and. (.not.morb_R_done)) &
-           call get_morb_R (ahc_R_done, morb_R_done)
-
-    if (plot_curv .and. (.not.ahc_R_done) ) &
-           call get_ahc_R (ahc_R_done, morb_R_done) 
-    !this order because morb contains ahc
-
+    if (plot_morb )   call get_morb_R 
+    if (plot_curv )   call get_ahc_R 
 
 
     if(on_root) then

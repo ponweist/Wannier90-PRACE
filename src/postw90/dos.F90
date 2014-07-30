@@ -30,7 +30,7 @@ contains
   !                   PUBLIC PROCEDURES                     ! 
   !=========================================================!
 
-  subroutine dos_main (ahc_R_done, SS_R_done)
+  subroutine dos_main 
     !=======================================================!
     !                                                       !
     ! Computes the electronic density of states. Can        !
@@ -74,7 +74,6 @@ contains
     real(kind=dp) :: del_eig(num_wann,3)
     real(kind=dp) :: eig(num_wann), levelspacing_k(num_wann)
 
-    logical :: SS_R_done, ahc_R_done
 
     num_freq=nint((dos_energy_max-dos_energy_min)/dos_energy_step)+1
     if(num_freq==1) num_freq=2
@@ -94,10 +93,10 @@ contains
     allocate(UU(num_wann,num_wann),stat=ierr)
     if (ierr/=0) call io_error('Error in allocating UU in dos')    
 
-    if (.not.ahc_R_done) call get_HH_R
-    if(spin_decomp .and. (.not.SS_R_done)) then
+    call get_HH_R
+    if(spin_decomp) then
        ndim=3
-       call get_SS_R (SS_R_done)
+       call get_SS_R 
     else
        ndim=1
     end if

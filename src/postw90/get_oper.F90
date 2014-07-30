@@ -62,7 +62,7 @@ module w90_get_oper
 
 
   !======================================================!
-  subroutine get_ahc_R (ahc_R_done, morb_R_done)
+  subroutine get_ahc_R 
   !======================================================!
   !                                                      !
   ! <0n|H|Rm>, in eV                                     !
@@ -103,7 +103,7 @@ module w90_get_oper
     complex(kind=dp), allocatable :: S_o(:,:)
     complex(kind=dp), allocatable :: S(:,:)
 
-    logical                       :: new_ir, nn_found, ahc_R_done, morb_R_done 
+    logical                       :: new_ir, nn_found 
     character(len=60)             :: header
 
     
@@ -113,15 +113,14 @@ module w90_get_oper
     real(kind=dp)                 :: sciss_shift
 
 
-    if(ahc_R_done .or. (index(berry_task,'morb')>0) ) return
-
-    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_ahc_R',1)
-
-!!!!! carfull here kslice kpath      if(.not.allocated(HH_R)) then
-
-       allocate(HH_R(num_wann,num_wann,nrpts))
+    if(.not.allocated(AA_R)) then
        allocate(AA_R(num_wann,num_wann,nrpts,3))
+    else
+       if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_ahc_R',2)
+       return
+    end if
 
+    allocate(HH_R(num_wann,num_wann,nrpts))
     ! Real-space Hamiltonian H(R) and position matrix elements are read from file
     !
     if(effective_model) then
@@ -467,13 +466,11 @@ if(on_root) then
        call fourier_q_to_R(AA_q(:,:,:,3),AA_R(:,:,:,3))
 
     !!deallocate( AA_q, AA_q_diag, v_matrix, S, S_o, num_states )
-    if (index(berry_task,'morb')<0 .or. morb_R_done)   deallocate( v_matrix ) 
+    if (index(berry_task,'morb')<0 )   deallocate( v_matrix ) 
 
 endif !on_root
 
     call comms_bcast(AA_R(1,1,1,1),num_wann*num_wann*nrpts*3)
-
-   ahc_R_done = .true.
 
     if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_HH_R',2)
     return
@@ -496,7 +493,7 @@ endif !on_root
 
 
   !============================================================!
-  subroutine get_morb_R (ahc_R_done, morb_R_done) 
+  subroutine get_morb_R  
   !============================================================!
   !                                                            !
   ! <0n|H|Rm>, in eV                                           !
@@ -544,7 +541,7 @@ endif !on_root
     complex(kind=dp), allocatable :: H_q_qb(:,:), BB_q(:,:,:,:)
     complex(kind=dp), allocatable :: CC_q(:,:,:,:,:), Ho_qb1_q_qb2(:,:), H_qb1_q_qb2(:,:)
 
-    logical                       :: new_ir, nn_found, ahc_R_done, morb_R_done 
+    logical                       :: new_ir, nn_found 
     character(len=60)             :: header
 
     
@@ -555,9 +552,11 @@ endif !on_root
     complex(kind=dp)              :: x
 
 
-    if(morb_R_done) return
+    if (allocated(BB_R)) then
+       if(timing_level>1.and.on_root) call io_stopwatch('get_oper: get_morb_R',2) 
+       return
+    end if
 
-    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_morb_R',1)
 
 !!!!! carfull here kslice kpath      if(.not.allocated(HH_R)) then
 
@@ -1051,9 +1050,6 @@ if(on_root) then
 endif !on_root
 
     call comms_bcast(CC_R(1,1,1,1,1),num_wann*num_wann*nrpts*3*3)
-
-    morb_R_done = .true.
-    ahc_R_done  = .true.   !it is included in morb
 
 
     if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_morb_R',2)
@@ -2006,7 +2002,7 @@ endif !on_root
 
 
   !===============================================================!
-  subroutine get_SS_R (SS_R_done)
+  subroutine get_SS_R 
   !===============================================================!
   !                                                               !
   ! Wannier representation of the Pauli matrices: <0n|sigma_a|Rm> !
@@ -2030,11 +2026,6 @@ endif !on_root
     integer                       :: i,j,ii,jj,m,n,spn_in,ik,is,&
                                      winmin,nb_tmp,nkp_tmp,ierr,s, counter
     character(len=60)             :: header
-    logical                       :: SS_R_done
-
-    if(SS_R_done) return
-
-    if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_SS_R',1)
 
     if(.not.allocated(SS_R)) then
        allocate(SS_R(num_wann,num_wann,nrpts,3))
@@ -2153,8 +2144,6 @@ endif !on_root
     endif !on_root
 
     call comms_bcast(SS_R(1,1,1,1),num_wann*num_wann*nrpts*3)
-
-    SS_R_done = .true.
 
     if (timing_level>1.and.on_root) call io_stopwatch('get_oper: get_SS_R',2)
     return

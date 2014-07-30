@@ -62,7 +62,7 @@ module w90_berry
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine berry_main (ahc_R_done, morb_R_done, SS_R_done)
+  subroutine berry_main 
   !============================================================!
   !                                                            !
   ! Computes the following quantities:                         !
@@ -134,8 +134,7 @@ module w90_berry
                          loop_xyz,loop_adpt,adpt_counter_list(nfermi),ifreq,&
                          file_unit
     character(len=24) :: file_name
-    logical           :: eval_ahc,eval_morb,eval_kubo,not_scannable, &
-                         ahc_R_done, morb_R_done, SS_R_done
+    logical           :: eval_ahc,eval_morb,eval_kubo,not_scannable
 
     if(nfermi==0) call io_error(&
          'Must set either "fermi_energy," "num_valence_bands," or '&
@@ -159,11 +158,11 @@ module w90_berry
     ! Wannier matrix elements, allocations and initializations
     !
 
-    if(eval_kubo .and. spin_decomp)  call get_SS_R (SS_R_done) 
+    if(eval_kubo .and. spin_decomp)  call get_SS_R  
         !!due to v_matrix dealloc this order of calls  get_SS_R 
 
     if(eval_morb) then
-       call get_morb_R (ahc_R_done, morb_R_done) 
+       call get_morb_R  
 !       call get_HH_R
 !       call get_AA_R
 !       call get_BB_R
@@ -175,7 +174,7 @@ module w90_berry
 
 !this order due to the fact that ahc is in morb
     if(eval_ahc) then
-        call get_ahc_R (ahc_R_done, morb_R_done)
+        call get_ahc_R 
 !       call get_HH_R 
 !       call get_AA_R
        imf_list=0.0_dp
@@ -190,7 +189,7 @@ module w90_berry
          //'Fermi energy: scanning the Fermi energy is not implemented')
 
     if(eval_kubo) then
-       call get_ahc_R (ahc_R_done, morb_R_done) 
+       call get_ahc_R  
 !       call get_HH_R
 !       call get_AA_R
        allocate(kubo_H_k(3,3,kubo_nfreq))

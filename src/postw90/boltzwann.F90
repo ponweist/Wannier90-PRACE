@@ -661,7 +661,7 @@ contains
     call get_HH_R
     if(spin_decomp) then
        ndim=3
-       call get_SS_R (.false.)
+       call get_SS_R 
     else
        ndim=1
     end if
