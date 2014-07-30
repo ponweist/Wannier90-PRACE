@@ -83,7 +83,7 @@ constants.o: ../constants.F90
 io.o: ../io.F90 constants.o
 	 $(COMPILER) $(POSTOPTS) $(FCOPTS) -c ../io.F90
 
-utility.o: ../utility.F90  constants.o io.o
+utility.o: ../utility.F90  constants.o io.o blas.mod
 	 $(COMPILER) $(POSTOPTS) $(FCOPTS) -c ../utility.F90
 
 parameters.o: ../parameters.F90 constants.o io.o utility.o
@@ -148,6 +148,8 @@ wannier_lib.o: ./constants.o ./io.o ./utility.o ./parameters.o \
 	./wannierise.o ./plot.o ./transport.o ../wannier_lib.F90
 	 $(COMPILER) $(FCOPTS) -c ../wannier_lib.F90
 
+blas.mod:
+	$(COMPILER) $(FCOPTS) -c $(BLAS_INCLUDE)/blas.f90
 
 .PHONY: wannier libs post clean mpi_test serialobjs
 

@@ -62,7 +62,7 @@ module w90_kslice
 
     use w90_wan_ham, only        : get_eig_deleig
     use w90_spin, only           : get_spin_nk
-    use w90_berry, only          : get_imf_k_list,get_imfgh_k_list
+    use w90_berry, only          : get_imfgh_k_list
     use w90_constants, only      : bohr
 
     integer           :: loop_xy,loop_x,loop_y,n,n1,n2,n3,i
@@ -305,7 +305,7 @@ module w90_kslice
           endif
 
           if(plot_curv) then
-             call get_imf_k_list(kpt,imf_k_list)
+             call get_imfgh_k_list(kpt,imf_k_list)
              curv(1)=sum(imf_k_list(:,1,1))
              curv(2)=sum(imf_k_list(:,2,1))
              curv(3)=sum(imf_k_list(:,3,1))
