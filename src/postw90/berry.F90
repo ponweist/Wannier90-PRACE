@@ -62,7 +62,7 @@ module w90_berry
   !                   PUBLIC PROCEDURES                       ! 
   !===========================================================!
 
-  subroutine berry_main (ahc_R_done, morb_R_done, SS_R_done)
+  subroutine berry_main 
   !============================================================!
   !                                                            !
   ! Computes the following quantities:                         !
@@ -134,8 +134,7 @@ module w90_berry
                          loop_xyz,loop_adpt,adpt_counter_list(nfermi),ifreq,&
                          file_unit
     character(len=24) :: file_name
-    logical           :: eval_ahc,eval_morb,eval_kubo,not_scannable, &
-                         ahc_R_done, morb_R_done, SS_R_done
+    logical           :: eval_ahc,eval_morb,eval_kubo,not_scannable
 
     if(nfermi==0) call io_error(&
          'Must set either "fermi_energy," "num_valence_bands," or '&
