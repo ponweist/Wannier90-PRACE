@@ -853,24 +853,10 @@ if(on_root) then
 
           ! Wannier-gauge overlap matrix S in the projected subspace
           !
-          call get_win_min(ik,winmin_q)
-          call get_win_min(nnlist(ik,nn),winmin_qb)
-          S=cmplx_0
-          H_q_qb(:,:)=cmplx_0
-          do m=1,num_wann
-             do n=1,num_wann
-                do i=1,num_states(ik)
-                   ii=winmin_q+i-1
-                   do j=1,num_states(nnlist(ik,nn))
-                      jj=winmin_qb+j-1
-                      x = conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
-                           *v_matrix(j,m,nnlist(ik,nn))
-                      S(n,m)=S(n,m) + x
-                      H_q_qb(n,m)=H_q_qb(n,m) + x*eigval(ii,ik)
-                   enddo
-                enddo
-             enddo
-          enddo
+          call get_gauge_overlap_matrix( &
+                  ik, num_states(ik), &
+                  nnlist(ik,nn), num_states(nnlist(ik,nn)), &
+                  S_o, S, H_q_qb)
 
           ! Berry connection matrix
           ! Assuming all neighbors of a given point are read in sequence!
@@ -2212,7 +2198,7 @@ endif !on_root
   end subroutine get_win_min
 
   !==========================================================!
-  subroutine get_gauge_overlap_matrix(ik_a, ns_a, ik_b, ns_b, S_o, S)
+  subroutine get_gauge_overlap_matrix(ik_a, ns_a, ik_b, ns_b, S_o, S, H)
   !==========================================================!
   !                                                          !
   ! Wannier-gauge overlap matrix S in the projected subspace !
@@ -2222,28 +2208,39 @@ endif !on_root
     use blas95, only             : gemm
     use w90_constants, only      : dp, cmplx_0
     use w90_postw90_common, only : v_matrix
-    use w90_parameters, only     : num_wann
+    use w90_parameters, only     : num_wann, eigval
 
     integer, intent(in) :: ik_a, ns_a, ik_b, ns_b
 
-    complex(kind=dp), dimension(:,:), intent(in)  :: S_o
-    complex(kind=dp), dimension(:,:), intent(out) :: S
+    complex(kind=dp), dimension(:,:), intent(in)            :: S_o
+    complex(kind=dp), dimension(:,:), intent(out)           :: S
+    complex(kind=dp), dimension(:,:), intent(out), optional :: H
+
     complex(kind=dp), dimension(:,:), allocatable :: tmp
 
-    integer :: wm_a, wm_b, &
-               m, n, i, ii, j, jj
+    integer :: wm_a, wm_b, i, j
 
     call get_win_min(ik_a, wm_a)
     call get_win_min(ik_b, wm_b)
 
-    allocate(tmp(ns_b,num_wann))
+    allocate(tmp(ns_a,num_wann))
 
     call gemm(S_o(wm_a:wm_a+ns_a-1, wm_b:wm_b+ns_b-1), &
-              v_matrix(1:ns_a, 1:num_wann, ik_a), &
-              tmp, 'C', 'N')
-    call gemm(tmp, &
               v_matrix(1:ns_b,1:num_wann,ik_b), &
+              tmp, 'N', 'N')
+
+    call gemm(v_matrix(1:ns_a, 1:num_wann, ik_a), &
+              tmp, &
               S, 'C', 'N')
+
+    if(present(H)) then
+      forall(i=1:ns_a, j=1:num_wann)
+         tmp(i,j) = tmp(i,j) * eigval(i,ik_a)
+      end forall
+      call gemm(v_matrix(1:ns_a, 1:num_wann, ik_a), &
+                tmp, &
+                H, 'C', 'N')
+    end if
   end subroutine get_gauge_overlap_matrix
 
 end module w90_get_oper
