@@ -2226,7 +2226,7 @@ endif !on_root
     allocate(tmp(ns_a,num_wann))
 
     call gemm(S_o(wm_a:wm_a+ns_a-1, wm_b:wm_b+ns_b-1), &
-              v_matrix(1:ns_b,1:num_wann,ik_b), &
+              v_matrix(1:ns_b, 1:num_wann, ik_b), &
               tmp, 'N', 'N')
 
     call gemm(v_matrix(1:ns_a, 1:num_wann, ik_a), &

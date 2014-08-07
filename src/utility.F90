@@ -709,7 +709,7 @@ contains
     s = 0
     do i=1,n
       do j=1,m
-        s = s + dble(a(i,j) * b(j,i))
+        s = s + real(a(i,j) * b(j,i), dp)
       end do
     end do
     utility_re_tr_prod = s
