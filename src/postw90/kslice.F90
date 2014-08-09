@@ -57,8 +57,7 @@ module w90_kslice
                                    nfermi,fermi_energy_list,berry_curv_unit,&
                                    kpath_bands_colour,spin_decomp,berry_task
 
-    use w90_get_oper, only       : get_HH_R,HH_R,get_AA_R,get_BB_R,get_CC_R,&
-                                   get_SS_R, get_ahc_R, get_morb_R
+    use w90_get_oper, only       : get_HH_R,HH_R,get_SS_R, get_ahc_R, get_morb_R
 
     use w90_wan_ham, only        : get_eig_deleig
     use w90_spin, only           : get_spin_nk
@@ -105,13 +104,6 @@ module w90_kslice
          call io_error('Error: spin-colored Fermi lines not allowed in '&
          //'curv/morb heatmap plots') 
 
-    !call get_HH_R
-    !if(plot_curv.or.plot_morb) call get_AA_R
-    !if(plot_morb) then
-    !   call get_BB_R
-    !   call get_CC_R
-    !endif
-    !if(plot_fermi_lines .and. kslice_fermi_lines_colour=='spin') call get_SS_R
 
     !get_SS_R first because of v_matrix deallocation
     if (plot_fermi_lines .and. kslice_fermi_lines_colour=='spin')  call get_SS_R  
