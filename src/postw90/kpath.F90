@@ -76,33 +76,15 @@ contains
     ! However, we still have to read and distribute the data if we 
     ! are in parallel. So calls to get_oper are done on all nodes at the moment
     !
-    plot_bands=.false.
-    if(index(kpath_task,'bands')>0) then
-       plot_bands=.true.
-    end if
-    plot_curv=.false.
-    if(index(kpath_task,'curv')>0) then
-       plot_curv=.true.
-    end if
-    plot_morb=.false.
-    if(index(kpath_task,'morb')>0) then
-       plot_morb=.true.
-    end if
-    ! Set up the needed Wannier matrix elements
+    plot_bands = index(kpath_task,'bands') > 0
+    plot_curv  = index(kpath_task,'curv') > 0
+    plot_morb  = index(kpath_task,'morb') > 0
+    call k_path_print_info(plot_bands, plot_curv, plot_morb)
 
-!!!Gosia now not needed
-    !call get_HH_R
-    !if(plot_curv.or.plot_morb) then
-    !   call get_AA_R
-    !endif
-    !if(plot_morb) then
-    !   call get_BB_R
-    !   call get_CC_R
-    !endif
+    ! Set up the needed Wannier matrix elements
 !!!Gosia I insist that get_SS_R is before get_ahc_R and get_morb_R
 !        since it needs v_matrix which is deallocated in 
 !        get_ahc_R, morb routines
-
     if (plot_bands .and. kpath_bands_colour=='spin' ) call get_SS_R
     if (plot_bands) then 
        if(index(berry_task,'morb')>0) then
@@ -117,42 +99,13 @@ contains
     if (plot_morb )   call get_morb_R 
     if (plot_curv )   call get_ahc_R 
 
+    !call k_path_get_totalpts(total_pts)
 
     if(on_root) then
-
-       write(stdout,'(/,/,1x,a)')&
-            'Properties calculated in module  k p a t h'
-       write(stdout,'(1x,a)')&
-            '------------------------------------------'
-
-       if(plot_bands) then
-          select case(kpath_bands_colour)
-          case("none")
-             write(stdout,'(/,3x,a)') '* Energy bands in eV'
-          case("spin")
-             write(stdout,'(/,3x,a)') '* Energy bands in eV, coloured by spin'
-          end select
-       end if
-       if(plot_curv) then
-          if(berry_curv_unit=='ang2') then
-             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Ang^2'
-          elseif(berry_curv_unit=='bohr2') then
-             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Bohr^2'
-          endif
-          if(nfermi/=1) call io_error('Need to specify one value of '&
-               //'the fermi energy when kpath_task=curv')
-       end if
-       if(plot_morb) then
-          write(stdout,'(/,3x,a)')& 
-               '* Orbital magnetization k-space integrand in eV.Ang^2'
-          if(nfermi/=1) call io_error('Need to specify one value of '&
-               //'the fermi energy when kpath_task=morb')
-       end if
-
-       ! Work out how many points there are in the total path, and the 
+       ! Work out how many points there are in the total path, and the
        ! positions of the special points
        !
-       num_paths=bands_num_spec_points/2 ! number of straigh line segments 
+       num_paths=bands_num_spec_points/2 ! number of straigh line segments
        ! (paths)
        num_spts=num_paths+1 ! number of path endpoints (special pts)
        do loop_path=1,num_paths
@@ -162,12 +115,12 @@ contains
                dot_product(vec,(matmul(recip_metric,vec)))&
                )
           !
-          ! kpath_pts(loop_path) is the number of points in path number 
+          ! kpath_pts(loop_path) is the number of points in path number
           ! loop_path (all segments have the same density of points)
           !
           if(loop_path==1) then
              kpath_pts(loop_path)=kpath_num_points
-          else 
+          else
              kpath_pts(loop_path)=nint(real(kpath_num_points,dp)&
                   *kpath_len(loop_path)/kpath_len(1))
           end if
@@ -724,5 +677,49 @@ contains
          'set xrange [0:',F8.5,']',/,'set yrange [',F16.8,' :',F16.8,']')
 
   end subroutine k_path
+
+  !===========================================================!
+  !                   PRIVATE PROCEDURES                      !
+  !===========================================================!
+  subroutine k_path_print_info(plot_bands, plot_curv, plot_morb)
+
+    use w90_comms, only       : on_root
+    use w90_parameters, only  : kpath_bands_colour, berry_curv_unit, nfermi
+    use w90_io, only          : stdout, io_error
+
+    logical, intent(in)      :: plot_bands, plot_curv, plot_morb
+
+    if(on_root) then
+       write(stdout,'(/,/,1x,a)')&
+            'Properties calculated in module  k p a t h'
+       write(stdout,'(1x,a)')&
+            '------------------------------------------'
+
+       if(plot_bands) then
+          select case(kpath_bands_colour)
+          case("none")
+             write(stdout,'(/,3x,a)') '* Energy bands in eV'
+          case("spin")
+             write(stdout,'(/,3x,a)') '* Energy bands in eV, coloured by spin'
+          end select
+       end if
+       if(plot_curv) then
+          if(berry_curv_unit=='ang2') then
+             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Ang^2'
+          elseif(berry_curv_unit=='bohr2') then
+             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Bohr^2'
+          endif
+          if(nfermi/=1) call io_error('Need to specify one value of '&
+               //'the fermi energy when kpath_task=curv')
+       end if
+       if(plot_morb) then
+          write(stdout,'(/,3x,a)')&
+               '* Orbital magnetization k-space integrand in eV.Ang^2'
+          if(nfermi/=1) call io_error('Need to specify one value of '&
+               //'the fermi energy when kpath_task=morb')
+       end if
+    end if ! on_root
+
+  end subroutine
 
 end module w90_kpath
