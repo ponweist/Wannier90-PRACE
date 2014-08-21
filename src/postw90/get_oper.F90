@@ -263,6 +263,7 @@ if(on_root) then
     allocate(num_states(num_kpts))
 
     HH_q=cmplx_0
+
     do ik=1,num_kpts
        if(have_disentangled) then 
           num_states(ik)=ndimwin(ik)
@@ -270,8 +271,17 @@ if(on_root) then
           num_states(ik)=num_wann
        endif
 
-       call get_win_min(ik,winmin_q)
+       !call get_gauge( &
+       !        ik, num_states(ik), &
+       !        ik, num_states(ik), &
+       !        S_o=1, H=HH_q)
+       ! do m=1,num_wann
+       ! do n=1,m
+       !    HH_q(m,n,ik)=conjg(HH_q(n,m,ik))
+       ! enddo
+       ! enddo
 
+       call get_win_min(ik,winmin_q)
        do m=1,num_wann
           do n=1,m
              do i=1,num_states(ik)
@@ -283,7 +293,8 @@ if(on_root) then
              HH_q(m,n,ik)=conjg(HH_q(n,m,ik))
           enddo
        enddo
-    enddo
+
+    enddo  !ik
 
     call fourier_q_to_R(HH_q,HH_R)
 
@@ -401,22 +412,27 @@ if(on_root) then
 
           ! Wannier-gauge overlap matrix S in the projected subspace
           !
-          call get_win_min(ik,winmin_q)
-          call get_win_min(nnlist(ik,nn),winmin_qb)
-          S=cmplx_0
-          do m=1,num_wann
-             do n=1,num_wann
-                do i=1,num_states(ik)
-                   ii=winmin_q+i-1
-                   do j=1,num_states(nnlist(ik,nn))
-                      jj=winmin_qb+j-1
-                      S(n,m)=S(n,m)&
-                           +conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
-                           *v_matrix(j,m,nnlist(ik,nn))
-                   enddo
-                enddo
-             enddo
-          enddo
+          call get_gauge( &
+                  ik, num_states(ik), &
+                  nnlist(ik,nn), num_states(nnlist(ik,nn)), &
+                  S_o, S)
+
+          !call get_win_min(ik,winmin_q)
+          !call get_win_min(nnlist(ik,nn),winmin_qb)
+          !S=cmplx_0
+          !do m=1,num_wann
+          !   do n=1,num_wann
+          !      do i=1,num_states(ik)
+          !         ii=winmin_q+i-1
+          !         do j=1,num_states(nnlist(ik,nn))
+          !            jj=winmin_qb+j-1
+          !            S(n,m)=S(n,m)&
+          !                 +conjg(v_matrix(i,n,ik))*S_o(ii,jj)&
+          !                 *v_matrix(j,m,nnlist(ik,nn))
+          !         enddo
+          !      enddo
+          !   enddo
+          !enddo
 
           ! Berry connection matrix
           ! Assuming all neighbors of a given point are read in sequence!
@@ -853,7 +869,7 @@ if(on_root) then
 
           ! Wannier-gauge overlap matrix S in the projected subspace
           !
-          call get_gauge_overlap_matrix( &
+          call get_gauge( &
                   ik, num_states(ik), &
                   nnlist(ik,nn), num_states(nnlist(ik,nn)), &
                   S_o, S, H_q_qb)
@@ -991,10 +1007,11 @@ if(on_root) then
                 !
                 ! Transform to projected subspace, Wannier gauge
                 !
-                call get_gauge_overlap_matrix(&
+                call get_gauge(&
                    qb1, num_states(qb1), &
                    qb2, num_states(qb2), &
                    Ho_qb1_q_qb2, H_qb1_q_qb2)
+
                 do b=1,3
                    do a=1,b
                       CC_q(:,:,ik,a,b)=CC_q(:,:,ik,a,b)+wb(nn1)*bk(a,nn1,ik)&
@@ -1403,7 +1420,10 @@ endif !on_root
 
     implicit none
   
-    complex(kind=dp), allocatable :: spn_o(:,:,:,:),SS_q(:,:,:,:),spn_temp(:,:)
+    !complex(kind=dp), allocatable :: spn_o(:,:,:,:),SS_q(:,:,:,:),spn_temp(:,:)
+    complex(kind=dp), allocatable :: spn_o_1(:,:,:),SS_qq_1(:,:,:),spn_temp(:,:),&
+                                     spn_o_2(:,:,:),SS_qq_2(:,:,:),&
+                                     spn_o_3(:,:,:),SS_qq_3(:,:,:)
     real(kind=dp)                 :: s_real,s_img
     integer, allocatable          :: num_states(:)
     integer                       :: i,j,ii,jj,m,n,spn_in,ik,is,&
@@ -1418,8 +1438,15 @@ endif !on_root
 
     if(on_root) then
 
-       allocate(spn_o(num_bands,num_bands,num_kpts,3))
-       allocate(SS_q(num_wann,num_wann,num_kpts,3))
+       !allocate(spn_o(num_bands,num_bands,num_kpts,3))
+       !allocate(SS_q(num_wann,num_wann,num_kpts,3))
+
+       allocate(spn_o_1(num_bands,num_bands,num_kpts))
+       allocate(spn_o_2(num_bands,num_bands,num_kpts))
+       allocate(spn_o_3(num_bands,num_bands,num_kpts))
+       allocate(SS_qq_1(num_wann,num_wann,num_kpts))
+       allocate(SS_qq_2(num_wann,num_wann,num_kpts))
+       allocate(SS_qq_3(num_wann,num_wann,num_kpts))
 
        allocate(num_states(num_kpts))
        do ik=1,num_kpts
@@ -1459,16 +1486,28 @@ endif !on_root
           do ik=1,num_kpts
              do m=1,num_bands
                 do n=1,m
-                   read(spn_in,*,err=110,end=110) s_real,s_img 
-                   spn_o(n,m,ik,1)=cmplx(s_real,s_img)
-                   read(spn_in,*,err=110,end=110) s_real,s_img 
-                   spn_o(n,m,ik,2)=cmplx(s_real,s_img)
-                   read(spn_in,*,err=110,end=110) s_real,s_img 
-                   spn_o(n,m,ik,3)=cmplx(s_real,s_img)
+                   !read(spn_in,*,err=110,end=110) s_real,s_img 
+                   !spn_o(n,m,ik,1)=cmplx(s_real,s_img)
+                   !read(spn_in,*,err=110,end=110) s_real,s_img 
+                   !spn_o(n,m,ik,2)=cmplx(s_real,s_img)
+                   !read(spn_in,*,err=110,end=110) s_real,s_img 
+                   !spn_o(n,m,ik,3)=cmplx(s_real,s_img)
                    ! Read upper-triangular part, now build the rest
-                   spn_o(m,n,ik,1)=conjg(spn_o(n,m,ik,1))
-                   spn_o(m,n,ik,2)=conjg(spn_o(n,m,ik,2))
-                   spn_o(m,n,ik,3)=conjg(spn_o(n,m,ik,3))
+                   !spn_o(m,n,ik,1)=conjg(spn_o(n,m,ik,1))
+                   !spn_o(m,n,ik,2)=conjg(spn_o(n,m,ik,2))
+                   !spn_o(m,n,ik,3)=conjg(spn_o(n,m,ik,3))
+
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o_1(n,m,ik)=cmplx(s_real,s_img)
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o_2(n,m,ik)=cmplx(s_real,s_img)
+                   read(spn_in,*,err=110,end=110) s_real,s_img
+                   spn_o_3(n,m,ik)=cmplx(s_real,s_img)
+                   ! Read upper-triangular part, now build the rest
+                   spn_o_1(m,n,ik)=conjg(spn_o_1(n,m,ik))
+                   spn_o_2(m,n,ik)=conjg(spn_o_2(n,m,ik))
+                   spn_o_3(m,n,ik)=conjg(spn_o_3(n,m,ik))
+
                 end do
              end do
           enddo
@@ -1481,12 +1520,20 @@ endif !on_root
              do m=1,num_bands
                 do n=1,m
                    counter=counter+1
-                   spn_o(n,m,ik,1)=spn_temp(1,counter)
-                   spn_o(m,n,ik,1)=conjg(spn_temp(1,counter))
-                   spn_o(n,m,ik,2)=spn_temp(2,counter)
-                   spn_o(m,n,ik,2)=conjg(spn_temp(2,counter))
-                   spn_o(n,m,ik,3)=spn_temp(3,counter)
-                   spn_o(m,n,ik,3)=conjg(spn_temp(3,counter))
+                   !spn_o(n,m,ik,1)=spn_temp(1,counter)
+                   !spn_o(m,n,ik,1)=conjg(spn_temp(1,counter))
+                   !spn_o(n,m,ik,2)=spn_temp(2,counter)
+                   !spn_o(m,n,ik,2)=conjg(spn_temp(2,counter))
+                   !spn_o(n,m,ik,3)=spn_temp(3,counter)
+                   !spn_o(m,n,ik,3)=conjg(spn_temp(3,counter))
+
+                   spn_o_1(n,m,ik)=spn_temp(1,counter)
+                   spn_o_1(m,n,ik)=conjg(spn_temp(1,counter))
+                   spn_o_2(n,m,ik)=spn_temp(2,counter)
+                   spn_o_2(m,n,ik)=conjg(spn_temp(2,counter))
+                   spn_o_3(n,m,ik)=spn_temp(3,counter)
+                   spn_o_3(m,n,ik)=conjg(spn_temp(3,counter))
+
                 end do
              end do
           end do
@@ -1499,30 +1546,63 @@ endif !on_root
 
        ! Transform to projected subspace, Wannier gauge
        !
-       SS_q(:,:,:,:)=cmplx_0
+       SS_qq_1(:,:,:)=cmplx_0
+       SS_qq_2(:,:,:)=cmplx_0
+       SS_qq_3(:,:,:)=cmplx_0
        do ik=1,num_kpts
           call get_win_min(ik,winmin)
-          do is=1,3
+          !do is=1,3
+             !do m=1,num_wann
+             !   do n=1,m
+             !      do i=1,num_states(ik)
+             !         ii=winmin+i-1
+             !         do j=1,num_states(ik)
+             !            jj=winmin+j-1
+             !            SS_q(n,m,ik,is)=SS_q(n,m,ik,is)&
+             !                 +conjg(v_matrix(i,n,ik))*spn_o(ii,jj,ik,is)&
+             !                 *v_matrix(j,m,ik)
+             !         enddo !j
+             !      enddo !i
+             !      SS_q(m,n,ik,is)=conjg(SS_q(n,m,ik,is))
+             !   enddo !n
+             !enddo !m
+
+            !call get_gauge( &
+            !      ik, num_states(ik), &
+            !      ik, num_states(ik), &
+            !      spn_o(:,:,:,is), SS_q(:,:,:,is))
+
+             call get_gauge( &
+                  ik, num_states(ik), &
+                  ik, num_states(ik), & 
+                  spn_o_1(:,:,ik), SS_qq_1(:,:,ik))
+
+             call get_gauge( &
+                  ik, num_states(ik), &
+                  ik, num_states(ik), &
+                  spn_o_2(:,:,ik), SS_qq_2(:,:,ik))
+
+             call get_gauge( &
+                  ik, num_states(ik), &
+                  ik, num_states(ik), &
+                  spn_o_3(:,:,ik), SS_qq_3(:,:,ik))
+              
              do m=1,num_wann
-                do n=1,m
-                   do i=1,num_states(ik)
-                      ii=winmin+i-1
-                      do j=1,num_states(ik)
-                         jj=winmin+j-1
-                         SS_q(n,m,ik,is)=SS_q(n,m,ik,is)&
-                              +conjg(v_matrix(i,n,ik))*spn_o(ii,jj,ik,is)&
-                              *v_matrix(j,m,ik)
-                      enddo !j
-                   enddo !i
-                   SS_q(m,n,ik,is)=conjg(SS_q(n,m,ik,is))
-                enddo !n
-             enddo !m
-          enddo !is
+             do n=1,m
+                SS_qq_1(m,n,ik)=conjg(SS_qq_1(n,m,ik))
+                SS_qq_2(m,n,ik)=conjg(SS_qq_2(n,m,ik))
+                SS_qq_3(m,n,ik)=conjg(SS_qq_3(n,m,ik)) 
+             enddo
+             enddo
+          !enddo !is
        enddo !ik
 
-       call fourier_q_to_R(SS_q(:,:,:,1),SS_R(:,:,:,1))
-       call fourier_q_to_R(SS_q(:,:,:,2),SS_R(:,:,:,2))
-       call fourier_q_to_R(SS_q(:,:,:,3),SS_R(:,:,:,3))
+       !call fourier_q_to_R(SS_q(:,:,:,1),SS_R(:,:,:,1))
+       !call fourier_q_to_R(SS_q(:,:,:,2),SS_R(:,:,:,2))
+       !call fourier_q_to_R(SS_q(:,:,:,3),SS_R(:,:,:,3))
+       call fourier_q_to_R(SS_qq_1(:,:,:),SS_R(:,:,:,1))
+       call fourier_q_to_R(SS_qq_2(:,:,:),SS_R(:,:,:,2))
+       call fourier_q_to_R(SS_qq_3(:,:,:),SS_R(:,:,:,3))
 
     endif !on_root
 
@@ -1618,7 +1698,7 @@ endif !on_root
   end subroutine get_win_min
 
   !==========================================================!
-  subroutine get_gauge_overlap_matrix(ik_a, ns_a, ik_b, ns_b, S_o, S, H)
+  subroutine get_gauge (ik_a, ns_a, ik_b, ns_b, S_o, S, H)
   !==========================================================!
   !                                                          !
   ! Wannier-gauge overlap matrix S in the projected subspace !
@@ -1646,6 +1726,6 @@ endif !on_root
                         v_matrix(1:ns_b, 1:num_wann, ik_b),      'N', &
                         S, eigval(:,ik_a), H)
 
-  end subroutine get_gauge_overlap_matrix
+  end subroutine get_gauge
 
 end module w90_get_oper
