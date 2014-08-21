@@ -1629,38 +1629,23 @@ endif !on_root
     use w90_constants, only      : dp, cmplx_0
     use w90_postw90_common, only : v_matrix
     use w90_parameters, only     : num_wann, eigval
+    use w90_utility, only        : utility_zgemmm
 
     integer, intent(in) :: ik_a, ns_a, ik_b, ns_b
 
     complex(kind=dp), dimension(:,:), intent(in)            :: S_o
-    complex(kind=dp), dimension(:,:), intent(out)           :: S
-    complex(kind=dp), dimension(:,:), intent(out), optional :: H
+    complex(kind=dp), dimension(:,:), intent(out), optional :: S, H
 
-    complex(kind=dp), dimension(:,:), allocatable :: tmp
-
-    integer :: wm_a, wm_b, i, j
+    integer :: wm_a, wm_b
 
     call get_win_min(ik_a, wm_a)
     call get_win_min(ik_b, wm_b)
 
-    allocate(tmp(ns_a,num_wann))
+    call utility_zgemmm(v_matrix(1:ns_a, 1:num_wann, ik_a),      'C', &
+                        S_o(wm_a:wm_a+ns_a-1, wm_b:wm_b+ns_b-1), 'N', &
+                        v_matrix(1:ns_b, 1:num_wann, ik_b),      'N', &
+                        S, eigval(:,ik_a), H)
 
-    call gemm(S_o(wm_a:wm_a+ns_a-1, wm_b:wm_b+ns_b-1), &
-              v_matrix(1:ns_b, 1:num_wann, ik_b), &
-              tmp, 'N', 'N')
-
-    call gemm(v_matrix(1:ns_a, 1:num_wann, ik_a), &
-              tmp, &
-              S, 'C', 'N')
-
-    if(present(H)) then
-      forall(i=1:ns_a, j=1:num_wann)
-         tmp(i,j) = tmp(i,j) * eigval(i,ik_a)
-      end forall
-      call gemm(v_matrix(1:ns_a, 1:num_wann, ik_a), &
-                tmp, &
-                H, 'C', 'N')
-    end if
   end subroutine get_gauge_overlap_matrix
 
 end module w90_get_oper

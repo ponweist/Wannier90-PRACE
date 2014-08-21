@@ -30,6 +30,7 @@ module w90_utility
   public :: utility_lowercase
   public :: utility_strip
   public :: utility_zgemm
+  public :: utility_zgemmm
   public :: utility_translate_home
   public :: utility_rotate
   public :: utility_rotate_old
@@ -81,7 +82,64 @@ contains
 
   end subroutine utility_zgemm
 
+  !=============================================================!
+  subroutine utility_zgemmm(a, transa, b, transb, c, transc, &
+                            prod1, eigval, prod2)
+  !===============================================================!
+  ! Returns the complex matrix-matrix-matrix product              !
+  ! --> prod1 = op(a).op(b).op(c),                                !
+  ! where op(a/b/c) are defined according to transa/transb/transc !
+  ! (see also documentation of utility_zgemm above)               !
+  !                                                               !
+  ! If eigval and prod2 are present, also                         !
+  ! --> prod2 = op(a).diag(eigval).op(b).op(c)                    !
+  ! is returned.                                                  !
+  !===============================================================!
+     use blas95, only : gemm
 
+     complex(kind=dp), dimension(:,:), intent(in)  :: a, b, c
+     character(len=1), intent(in)                  :: transa, transb, transc
+     real(kind=dp), dimension(:), optional, &
+                                  intent(in)       :: eigval
+     complex(kind=dp), dimension(:,:), optional, &
+                                       intent(out) :: prod1, prod2
+
+     complex(kind=dp), dimension(:,:), allocatable :: tmp
+     integer                                       :: na, nb, mc, i, j
+
+     ! query matrix sizes
+     ! naming convention:
+     ! matrix op(a) [resp. op(b) and op(c)] is of size na x ma [resp. nb x mb and nc x mc]
+     ! only nb (=ma) and mc are explicitly needed
+     if(transb /= 'N') then
+       nb = size(b,2)
+     else
+       nb = size(b,1)
+     end if
+     if(transc /= 'N') then
+       mc = size(c,1)
+     else
+       mc = size(c,2)
+     end if
+
+     ! tmp = op(b).op(c)
+     allocate(tmp(nb,mc))
+     call gemm(b, c, tmp, transb, transc)
+
+     ! prod1 = op(a).tmp
+     if(present(prod1)) then
+       call gemm(a, tmp, prod1, transa, 'N')
+     end if
+
+     if(present(prod2) .and. present(eigval)) then
+       ! tmp = diag(eigval).tmp
+       forall(i=1:nb, j=1:mc)
+         tmp(i,j) = eigval(i) * tmp(i,j)
+       end forall
+       ! prod2 = op(a).tmp
+       call gemm(a, tmp, prod2, transa, 'N')
+     end if
+  end subroutine
 
   !===================================================================
   subroutine utility_inv3 (a, b, det)                   !
