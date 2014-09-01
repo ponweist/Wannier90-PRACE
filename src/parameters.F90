@@ -19,10 +19,13 @@ module w90_parameters
 
   private
 
+  ! Length for configuration strings (Character Length)
+  integer, parameter              :: CL = 20
+
   !Input
   integer,           public, save :: iprint
-  character(len=20), public, save :: energy_unit
-  character(len=20), public, save :: length_unit
+  character(len=CL), public, save :: energy_unit
+  character(len=CL), public, save :: length_unit
   logical,           public, save :: wvfn_formatted
   logical,           public, save :: spn_formatted
   logical,           public, save :: berry_uHu_formatted
@@ -77,47 +80,47 @@ module w90_parameters
   logical,           public, save :: wannier_plot
   integer, allocatable, public,save :: wannier_plot_list(:)
   integer,           public, save :: wannier_plot_supercell(3)
-  character(len=20), public, save :: wannier_plot_format
-  character(len=20), public, save :: wannier_plot_mode
+  character(len=CL), public, save :: wannier_plot_format
+  character(len=CL), public, save :: wannier_plot_mode
   logical,           public, save :: bands_plot
   integer,           public, save :: bands_num_points
-  character(len=20), public, save :: bands_plot_format
-  character(len=20), public, save :: bands_plot_mode
+  character(len=CL), public, save :: bands_plot_format
+  character(len=CL), public, save :: bands_plot_mode
   integer, allocatable, public, save :: bands_plot_project(:)
   integer,           public, save :: bands_plot_dim         
   logical,           public, save :: hr_plot
   real(kind=dp),     public, save :: hr_cutoff
   real(kind=dp),     public, save :: dist_cutoff
-  character(len=20), public, save :: dist_cutoff_mode
+  character(len=CL), public, save :: dist_cutoff_mode
   real(kind=dp),     public, save :: dist_cutoff_hc
-  character(len=20), public, save :: one_dim_axis
+  character(len=CL), public, save :: one_dim_axis
   logical,           public, save :: fermi_surface_plot
   integer,           public, save :: fermi_surface_num_points
-  character(len=20), public, save :: fermi_surface_plot_format
+  character(len=CL), public, save :: fermi_surface_plot_format
   real(kind=dp),             save :: fermi_energy
 
   ! module  k p a t h
   logical,                    public, save :: kpath
-  character(len=20),          public, save :: kpath_task
+  character(len=CL),          public, save :: kpath_task
   integer,                    public, save :: kpath_num_points
-  character(len=20),          public, save :: kpath_bands_colour
+  character(len=CL),          public, save :: kpath_bands_colour
 
   ! module  k s l i c e
   logical,           public, save :: kslice
-  character(len=20), public, save :: kslice_task
+  character(len=CL), public, save :: kslice_task
   real(kind=dp),     public, save :: kslice_corner(3)
   real(kind=dp),     public, save :: kslice_b1(3)
   real(kind=dp),     public, save :: kslice_b2(3)
   integer,           public, save :: kslice_2dkmesh(2)
   real(kind=dp),     public, save :: kslice_fermi_level
-  character(len=20), public, save :: kslice_fermi_lines_colour
+  character(len=CL), public, save :: kslice_fermi_lines_colour
   logical,           public, save :: found_kslice_fermi_level
 
   ! module  d o s
   logical,           public, save    :: dos
 ! No need to save 'dos_plot', only used here (introduced 'dos_task')
   logical,           public          :: dos_plot
-  character(len=20), public, save    :: dos_task 
+  character(len=CL), public, save    :: dos_task 
   logical,           public, save    :: dos_adpt_smr
   real(kind=dp),     public, save    :: dos_adpt_smr_fac
   integer,           public, save    :: dos_smr_index
@@ -128,14 +131,14 @@ module w90_parameters
   real(kind=dp),     public, save    :: dos_energy_step
   integer,           public, save    :: num_dos_project
   integer, allocatable, public, save :: dos_project(:)
-!  character(len=20), public, save    :: dos_plot_format
+!  character(len=CL), public, save    :: dos_plot_format
   real(kind=dp),     public, save    :: dos_kmesh_spacing
   integer,           public, save    :: dos_kmesh(3)
 !  real(kind=dp),     public, save :: dos_gaussian_width
 
 ! Module  b e r r y
   logical,           public, save :: berry
-  character(len=20), public, save :: berry_task
+  character(len=CL), public, save :: berry_task
   real(kind=dp),     public, save :: berry_kmesh_spacing
   integer,           public, save :: berry_kmesh(3)
   ! --------------remove eventually----------------
@@ -145,7 +148,7 @@ module w90_parameters
   ! --------------remove eventually----------------
   integer,           public, save :: berry_curv_adpt_kmesh
   real(kind=dp),     public, save :: berry_curv_adpt_kmesh_thresh
-  character(len=20), public, save :: berry_curv_unit
+  character(len=CL), public, save :: berry_curv_unit
   logical,           public, save :: kubo_adpt_smr
   real(kind=dp),     public, save :: kubo_adpt_smr_fac
   integer,           public, save :: kubo_smr_index
@@ -222,7 +225,7 @@ module w90_parameters
 
   logical,           public, save :: transport
   logical,           public, save :: tran_easy_fix
-  character(len=20), public, save :: transport_mode
+  character(len=CL), public, save :: transport_mode
   real(kind=dp),     public, save :: tran_win_min
   real(kind=dp),     public, save :: tran_win_max
   real(kind=dp),     public, save :: tran_energy_step
@@ -249,7 +252,7 @@ module w90_parameters
 
   logical,           public, save :: calc_only_A
   logical,           public, save :: use_bloch_phases
-  character(len=20), public, save :: restart
+  character(len=CL), public, save :: restart
   logical,           public, save :: write_r2mn
   logical,           public, save :: guiding_centres
   integer,           public, save :: num_guide_cycles
@@ -274,7 +277,7 @@ module w90_parameters
 
   ! Restarts
   real(kind=dp),     public, save :: omega_invariant
-  character(len=20), public, save :: checkpoint
+  character(len=CL), public, save :: checkpoint
   logical,           public, save :: have_disentangled
 
   ! Atom sites
@@ -3797,7 +3800,7 @@ endif
 
     real(kind=dp)     :: atoms_pos_frac_tmp(3,num_atoms)
     real(kind=dp)     :: atoms_pos_cart_tmp(3,num_atoms)
-    character(len=20) :: keyword
+    character(len=CL) :: keyword
     integer           :: in,ins,ine,loop,i,line_e,line_s,counter
     integer           :: i_temp,loop2,max_sites,ierr,ic
     logical           :: found_e,found_s,found,frac
@@ -4167,7 +4170,7 @@ endif
 
      real(kind=dp)     :: pos_frac(3)
      real(kind=dp)     :: pos_cart(3)
-     character(len=20) :: keyword
+     character(len=CL) :: keyword
      integer           :: in,ins,ine,loop,line_e,line_s,counter
      integer           :: sites,species,line,pos1,pos2,pos3,m_tmp,l_tmp,mstate
      integer           :: loop_l,loop_m,loop_sites,ierr,loop_s,spn_counter
@@ -4786,7 +4789,7 @@ endif
 
     implicit none
 
-    character(len=20) :: keyword
+    character(len=CL) :: keyword
     integer           :: in,ins,ine,loop,i,line_e,line_s,counter
     logical           :: found_e,found_s
     character(len=maxlen) :: dummy,end_st,start_st
