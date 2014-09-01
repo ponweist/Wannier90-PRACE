@@ -291,16 +291,6 @@ module w90_kslice
              enddo
           endif
 
-          if(plot_curv) then
-             call get_imfgh_k_list(kpt,imf_k_list)
-             curv(1)=sum(imf_k_list(:,1,1))
-             curv(2)=sum(imf_k_list(:,2,1))
-             curv(3)=sum(imf_k_list(:,3,1))
-             if(berry_curv_unit=='bohr2') curv=curv/bohr**2   
-             ! Print the negative Berry curvature 
-             write(zdataunit,'(3E16.8)') -curv(:)
-          end if
-
           if(plot_morb) then
              call get_imfgh_k_list(kpt,imf_k_list,img_k_list,imh_k_list)
              Morb_k=img_k_list(:,:,1)+imh_k_list(:,:,1)&
@@ -312,6 +302,17 @@ module w90_kslice
              write(zdataunit,'(3E16.8)') morb(:)
           end if
 
+          if(plot_curv) then
+             if(.not. plot_morb) then
+                call get_imfgh_k_list(kpt,imf_k_list)
+             end if
+             curv(1)=sum(imf_k_list(:,1,1))
+             curv(2)=sum(imf_k_list(:,2,1))
+             curv(3)=sum(imf_k_list(:,3,1))
+             if(berry_curv_unit=='bohr2') curv=curv/bohr**2
+             ! Print the negative Berry curvature
+             write(zdataunit,'(3E16.8)') -curv(:)
+          end if
        end do !loop_xy
        
        if(.not.fermi_lines_color) then
