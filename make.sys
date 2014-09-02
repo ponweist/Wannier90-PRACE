@@ -10,7 +10,7 @@ include /home/hpc/pr87xo/lu43nel3/shared_folder/espresso-5.0.2/make.sys
 F90=$(MPIF90)
 COMMS=mpi
 MPIF90=mpif90
-FCOPTS=-g -O2 -inline-level=1
+FCOPTS=-g -O2 -inline-level=1 -warn all
 LDOPTS=
 
 ## here we use sed to re-write the library paths. This is only relevant
