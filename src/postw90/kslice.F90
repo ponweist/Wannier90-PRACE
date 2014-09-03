@@ -157,7 +157,6 @@ module w90_kslice
        call k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
 
        nkpts = product(kslice_2dkmesh)
-       write(stdout,'(/,/,1x,a)') 'Output files:' 
 
        allocate(coords(2,nkpts))
 
@@ -275,7 +274,8 @@ module w90_kslice
                          //achar(48+n1)//achar(48+n2)//achar(48+n3)//'.dat'
 
                 call write_coords_file(filename, '(3E16.8)', &
-                                       coords, bandsdata(n:n,:,:))
+                                       coords, bandsdata(:,n:n,:), &
+                                       blocklen=kslice_2dkmesh(1))
              end do
           end if
        else if(kslice_fermi_lines_colour=='spin') then
@@ -676,7 +676,7 @@ module w90_kslice
   end subroutine k_slice
 
   !===========================================================!
-  !                   PUBLIC PROCEDURES                       !
+  !                   PRIVATE PROCEDURES                      !
   !===========================================================!
 
   subroutine k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
@@ -744,15 +744,16 @@ module w90_kslice
      close(fileunit)
   end subroutine
 
-  subroutine write_coords_file(filename, fmt, coords, vals, mask)
+  subroutine write_coords_file(filename, fmt, coords, vals, mask, blocklen)
      use w90_io,        only : io_error, stdout, io_file_unit
      use w90_constants, only : dp
 
      character(len=*), intent(in)  :: filename, fmt
      real(kind=dp), intent(in)     :: coords(:,:), vals(:,:,:)
      logical, intent(in), optional :: mask(:,:)
+     integer, intent(in), optional :: blocklen
 
-     integer :: n, m, i, j, fileunit
+     integer :: n, m, i, j, fileunit, bl
 
      write(stdout,'(/,3x,a)') filename
      fileunit = io_file_unit()
@@ -769,14 +770,23 @@ module w90_kslice
               end if
            end do
         end do
+        write(fileunit,*) ''
      else
+        if(present(blocklen)) then
+           bl = blocklen
+        else
+           bl = n
+        end if
+
         do i = 1,n
            do j = 1,m
               write(fileunit, fmt) coords(:,i), vals(:,j,i)
            end do
+           if(mod(i,bl) == 0) then
+              write(fileunit, *) ''
+           end if
         end do
      end if
-     write(fileunit,*) ''
      close(fileunit)
   end subroutine
 
