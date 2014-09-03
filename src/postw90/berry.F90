@@ -162,6 +162,7 @@ module w90_berry
         !!due to v_matrix dealloc this order of calls  get_SS_R
 
     if(eval_morb) then
+       call get_ahc_R
        call get_morb_R
 !       call get_HH_R
 !       call get_AA_R
