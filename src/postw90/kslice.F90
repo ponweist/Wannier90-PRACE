@@ -52,7 +52,7 @@ module w90_kslice
     use w90_parameters, only     : num_wann,kslice,kslice_task,&
                                    kslice_2dkmesh,kslice_corner,kslice_b1,&
                                    kslice_b2,kslice_fermi_level,&
-                                   found_kslice_fermi_level,&
+                                   found_kslice_fermi_level,&   
                                    kslice_fermi_lines_colour,recip_lattice,&
                                    nfermi,fermi_energy_list,berry_curv_unit,&
                                    kpath_bands_colour,spin_decomp,berry_task
@@ -64,9 +64,8 @@ module w90_kslice
     use w90_berry, only          : get_imfgh_k_list
     use w90_constants, only      : bohr
 
-    integer           :: loop_xy,loop_x,loop_y,n,n1,n2,n3,i
-    integer           :: zdataunit,coorddataunit,& 
-                         bandsunit,scriptunit,dataunit
+    integer           :: loop_xy,loop_x,loop_y,n,n1,n2,n3,i,nkpts
+    integer           :: scriptunit
     real(kind=dp)     :: bvec(3,3),yvec(3),zvec(3),b1mod,b2mod,ymod,cosb1b2,&
                          areab1b2,cosyb2,kpt(3),kpt_x,kpt_y,k1,k2,&
                          imf_k_list(3,3,nfermi),img_k_list(3,3,nfermi),&
@@ -79,11 +78,17 @@ module w90_kslice
 
     character(len=40) :: filename,square
 
-    integer,          allocatable :: bnddataunit(:)
     complex(kind=dp), allocatable :: HH(:,:)
     complex(kind=dp), allocatable :: delHH(:,:,:)
     complex(kind=dp), allocatable :: UU(:,:)
     real(kind=dp),    allocatable :: eig(:)
+
+    ! Output buffers
+    real(kind=dp), allocatable    :: coords(:,:), &
+                                     spndata(:,:,:), &
+                                     bandsdata(:,:,:), &
+                                     zdata(:,:)
+    logical, allocatable          :: spnmask(:,:)
 
     ! Everything is done on the root node.  However, we still have to
     ! read and distribute the data if we are in parallel, so calls to
@@ -149,47 +154,11 @@ module w90_kslice
          square='False'
        end if  
 
-       write(stdout,'(/,/,1x,a)')&
-            'Properties calculated in module  k s l i c e'
-       write(stdout,'(1x,a)')&
-            '--------------------------------------------'
+       call k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
 
-       if(plot_fermi_lines) then
-          if(.not.found_kslice_fermi_level) call io_error&
-               ('Error: must specify either fermi_energy or'&
-               //' kslice_fermi_level when kslice_task = fermi_lines')
-          select case(kslice_fermi_lines_colour)
-          case("none")
-             write(stdout,'(/,3x,a)') '* Fermi lines'
-          case("spin")
-             write(stdout,'(/,3x,a)') '* Fermi lines coloured by spin'
-          end select
-          write(stdout,'(/,7x,a,f10.4,1x,a)')&
-               '(Fermi level: ',kslice_fermi_level,'eV)'
-       endif
-       if(plot_curv) then
-          if(berry_curv_unit=='ang2') then
-             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Ang^2'
-          elseif(berry_curv_unit=='bohr2') then
-             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Bohr^2'
-          endif
-          if(nfermi/=1) call io_error('Need to specify one value of '&
-               //'the fermi energy when kslice_task=curv')
-       elseif(plot_morb) then
-          write(stdout,'(/,3x,a)')&
-               '* Orbital magnetization k-space integrand in eV.Ang^2'
-          if(nfermi/=1) call io_error('Need to specify one value of '&
-               //'the fermi energy when kslice_task=morb')
-       endif
+       nkpts = product(kslice_2dkmesh)
 
-       write(stdout,'(/,/,1x,a)') 'Output files:' 
-
-       if(.not.fermi_lines_color) then
-          coorddataunit=io_file_unit() 
-          filename=trim(seedname)//'-kslice-coord.dat'
-          write(stdout,'(/,3x,a)') filename
-          open(coorddataunit,file=filename,form='formatted')
-       endif
+       allocate(coords(2,nkpts))
 
        if(plot_fermi_lines) then
           allocate(HH(num_wann,num_wann))
@@ -197,41 +166,16 @@ module w90_kslice
           allocate(eig(num_wann))
           if(fermi_lines_color) then
              allocate(delHH(num_wann,num_wann,3))
-             dataunit=io_file_unit()
-             filename=trim(seedname)//'-kslice-fermi-spn.dat'
-             write(stdout,'(/,3x,a)') filename
-             open(dataunit,file=filename,form='formatted')
+             allocate(spndata(1,num_wann,nkpts))
+             allocate(spnmask(num_wann,nkpts))
+             spnmask = .false.
           else
-             bandsunit=io_file_unit()
-             filename=trim(seedname)//'-kslice-bands.dat'
-             write(stdout,'(/,3x,a)') filename
-             open(bandsunit,file=filename,form='formatted')
-             if(.not.heatmap) then
-                allocate(bnddataunit(num_wann))
-                do n=1,num_wann
-                   n1=n/100
-                   n2=(n-n1*100)/10
-                   n3=n-n1*100-n2*10
-                   bnddataunit(n)=io_file_unit()
-                   filename=trim(seedname)//'-bnd_'&
-                        //achar(48+n1)//achar(48+n2)//achar(48+n3)//'.dat'
-                   write(stdout,'(/,3x,a)') filename
-                   open(bnddataunit(n),file=filename,form='formatted')
-                enddo
-             endif
-          endif
-       endif
+             allocate(bandsdata(1,num_wann,nkpts))
+          end if
+       end if
 
-       if(plot_curv) then
-          zdataunit=io_file_unit()
-          filename=trim(seedname)//'-kslice-curv.dat'
-          write(stdout,'(/,3x,a)') filename
-          open(zdataunit,file=filename,form='formatted')
-       elseif(plot_morb) then
-          zdataunit=io_file_unit()
-          filename=trim(seedname)//'-kslice-morb.dat'
-          write(stdout,'(/,3x,a)') filename
-          open(zdataunit,file=filename,form='formatted')
+       if(heatmap) then
+          allocate(zdata(3,nkpts))
        end if
      
        db1=1.0_dp/real(kslice_2dkmesh(1),dp)
@@ -239,7 +183,8 @@ module w90_kslice
 
        ! Loop over uniform mesh of k-points on the slice
        !
-       do loop_xy=0,product(kslice_2dkmesh)-1
+       do i = 1, nkpts
+          loop_xy = i-1
           loop_x=loop_xy/kslice_2dkmesh(2)
           loop_y=loop_xy-loop_x*kslice_2dkmesh(2)          
           ! k1 and k2 are the coefficients of the k-point in the basis
@@ -251,7 +196,7 @@ module w90_kslice
           ! with x along x_vec=b1 and y along y_vec
           kpt_x=k1*b1mod+k2*b2mod*cosb1b2
           kpt_y=k2*b2mod*cosyb2
-          if(.not.fermi_lines_color) write(coorddataunit,'(2E16.8)') kpt_x,kpt_y
+          coords(:,i) = [kpt_x, kpt_y]
 
           if(plot_fermi_lines) then
              if(fermi_lines_color) then
@@ -269,29 +214,31 @@ module w90_kslice
                 call fourier_R_to_k(kpt,HH_R,HH,0)
                 call utility_diagonalize(HH,num_wann,eig,UU)
              endif
-             do n=1,num_wann
-                if(.not.fermi_lines_color) then
-                   ! For python
-                   write(bandsunit,'(E16.8)') eig(n)
-                   ! For gnuplot, using 'grid data' format
-                    if(.not.heatmap) then
-                       write(bnddataunit(n),'(3E16.8)') kpt_x,kpt_y,eig(n)
-                       if(loop_y==kslice_2dkmesh(2)-1 .and. &
-                            loop_x/=kslice_2dkmesh(1)-1) write (bnddataunit(n),*) ' '
-                    endif
-                elseif(kslice_fermi_lines_colour=='spin') then
+
+             if(allocated(bandsdata)) then
+                bandsdata(1,:,i) = eig(:)
+             else if(kslice_fermi_lines_colour=='spin') then
+                spndata(1,:,i) = spn_k(:)
+                do n=1, num_wann
                    ! vdum = dE/dk projected on the k-slice
                    zhat=zvec/sqrt(dot_product(zvec,zvec))
                    vdum(:)=del_eig(n,:)-dot_product(del_eig(n,:),zhat)*zhat(:)
                    Delta_E=sqrt(dot_product(vdum,vdum))*Delta_k
 !                   Delta_E=Delta_E*sqrt(2.0_dp) ! optimize this factor
-                   if(abs(eig(n)-kslice_fermi_level)<Delta_E)&
-                        write(dataunit,'(3E16.8)') kpt_x,kpt_y,spn_k(n)
-                endif
-             enddo
+                   spnmask(n,i) = abs(eig(n)-kslice_fermi_level)<Delta_E
+                end do
+             end if
           endif
 
-          if(plot_morb) then
+          if(plot_curv) then
+             call get_imfgh_k_list(kpt,imf_k_list)
+             curv(1)=sum(imf_k_list(:,1,1))
+             curv(2)=sum(imf_k_list(:,2,1))
+             curv(3)=sum(imf_k_list(:,3,1))
+             if(berry_curv_unit=='bohr2') curv=curv/bohr**2
+             ! Print the negative Berry curvature
+             zdata(:,i) = -curv(:)
+          else if(plot_morb) then
              call get_imfgh_k_list(kpt,imf_k_list,img_k_list,imh_k_list)
              Morb_k=img_k_list(:,:,1)+imh_k_list(:,:,1)&
                    -2.0_dp*fermi_energy_list(1)*imf_k_list(:,:,1)
@@ -299,45 +246,52 @@ module w90_kslice
              morb(1)=sum(Morb_k(:,1))
              morb(2)=sum(Morb_k(:,2))
              morb(3)=sum(Morb_k(:,3))
-             write(zdataunit,'(3E16.8)') morb(:)
+             zdata(:,i) = morb(:)
           end if
 
-          if(plot_curv) then
-             if(.not. plot_morb) then
-                call get_imfgh_k_list(kpt,imf_k_list)
-             end if
-             curv(1)=sum(imf_k_list(:,1,1))
-             curv(2)=sum(imf_k_list(:,2,1))
-             curv(3)=sum(imf_k_list(:,3,1))
-             if(berry_curv_unit=='bohr2') curv=curv/bohr**2
-             ! Print the negative Berry curvature
-             write(zdataunit,'(3E16.8)') -curv(:)
-          end if
        end do !loop_xy
+
+       write(stdout,'(/,/,1x,a)') 'Output files:'
        
        if(.not.fermi_lines_color) then
-          write(coorddataunit,*) ' '
-          close(coorddataunit)
-       endif
-       
-       if(heatmap) then
-          write(zdataunit,*) ' '
-          close(zdataunit)
-       endif
-       if(plot_fermi_lines) then
-          if(fermi_lines_color) then
-             close(dataunit)
-          else
-             write(bandsunit,*) ' '
-             close(bandsunit)
-             if(.not.heatmap) then
-                do n=1,num_wann
-                   write(bnddataunit(n),*) ' '
-                   close(bnddataunit(n))
-                enddo
-             endif
-          endif
-       endif
+          filename = trim(seedname)//'-kslice-coord.dat'
+          call write_data_file(filename, '(2E16.8)', coords)
+       end if
+
+       if(allocated(bandsdata)) then
+          ! For python
+          filename = trim(seedname)//'-kslice-bands.dat'
+          call write_data_file(filename, '(E16.8)', &
+                               reshape(bandsdata, [1, nkpts*num_wann]))
+
+          ! For gnuplot, using 'grid data' format
+          if(.not. heatmap) then
+             do n = 1, num_wann
+                n1=n/100
+                n2=(n-n1*100)/10
+                n3=n-n1*100-n2*10
+                filename=trim(seedname)//'-bnd_'&
+                         //achar(48+n1)//achar(48+n2)//achar(48+n3)//'.dat'
+
+                call write_coords_file(filename, '(3E16.8)', &
+                                       coords, bandsdata(:,n:n,:), &
+                                       blocklen=kslice_2dkmesh(1))
+             end do
+          end if
+       else if(kslice_fermi_lines_colour=='spin') then
+          filename = trim(seedname)//'-kslice-fermi-spn.dat'
+          call write_coords_file(filename, '(3E16.8)', coords, spndata, spnmask)
+       end if
+
+       if(allocated(zdata)) then
+          if(plot_curv) then
+             filename=trim(seedname)//'-kslice-curv.dat'
+          else !if(plot_morb) then
+             filename=trim(seedname)//'-kslice-morb.dat'
+          end if
+
+          call write_data_file(filename, '(3E16.8)', zdata)
+       end if
 
        if(plot_fermi_lines .and. .not.fermi_lines_color .and. .not.heatmap) then
           !
@@ -719,6 +673,121 @@ module w90_kslice
 
     end if ! on_root
  
-end subroutine k_slice
+  end subroutine k_slice
+
+  !===========================================================!
+  !                   PRIVATE PROCEDURES                      !
+  !===========================================================!
+
+  subroutine k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
+    use w90_io,         only     : io_error,stdout
+    use w90_parameters, only     : kslice_fermi_level, found_kslice_fermi_level, &
+                                   kslice_fermi_lines_colour, &
+                                   berry_curv_unit, &
+                                   nfermi
+
+    logical, intent(in)         :: plot_fermi_lines, plot_curv, plot_morb
+
+    write(stdout,'(/,/,1x,a)')&
+            'Properties calculated in module  k s l i c e'
+       write(stdout,'(1x,a)')&
+            '--------------------------------------------'
+
+       if(plot_fermi_lines) then
+          if(.not.found_kslice_fermi_level) call io_error&
+               ('Error: must specify either fermi_energy or'&
+               //' kslice_fermi_level when kslice_task = fermi_lines')
+          select case(kslice_fermi_lines_colour)
+          case("none")
+             write(stdout,'(/,3x,a)') '* Fermi lines'
+          case("spin")
+             write(stdout,'(/,3x,a)') '* Fermi lines coloured by spin'
+          end select
+          write(stdout,'(/,7x,a,f10.4,1x,a)')&
+               '(Fermi level: ',kslice_fermi_level,'eV)'
+       endif
+       if(plot_curv) then
+          if(berry_curv_unit=='ang2') then
+             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Ang^2'
+          elseif(berry_curv_unit=='bohr2') then
+             write(stdout,'(/,3x,a)') '* Negative Berry curvature in Bohr^2'
+          endif
+          if(nfermi/=1) call io_error('Need to specify one value of '&
+               //'the fermi energy when kslice_task=curv')
+       elseif(plot_morb) then
+          write(stdout,'(/,3x,a)')&
+               '* Orbital magnetization k-space integrand in eV.Ang^2'
+          if(nfermi/=1) call io_error('Need to specify one value of '&
+               //'the fermi energy when kslice_task=morb')
+       endif
+  end subroutine
+
+  subroutine write_data_file(filename, fmt, data)
+     use w90_io,        only : io_error, stdout, io_file_unit
+     use w90_constants, only : dp
+
+     character(len=*), intent(in)  :: filename, fmt
+     real(kind=dp), intent(in)     :: data(:,:)
+
+     integer :: n, i, fileunit
+
+     write(stdout,'(/,3x,a)') filename
+     fileunit = io_file_unit()
+     open(fileunit,file=filename,form='formatted')
+
+     n = size(data,2)
+     do i=1,n
+        write(fileunit,fmt) data(:,i)
+     end do
+
+     write(fileunit,*) ''
+     close(fileunit)
+  end subroutine
+
+  subroutine write_coords_file(filename, fmt, coords, vals, mask, blocklen)
+     use w90_io,        only : io_error, stdout, io_file_unit
+     use w90_constants, only : dp
+
+     character(len=*), intent(in)  :: filename, fmt
+     real(kind=dp), intent(in)     :: coords(:,:), vals(:,:,:)
+     logical, intent(in), optional :: mask(:,:)
+     integer, intent(in), optional :: blocklen
+
+     integer :: n, m, i, j, fileunit, bl
+
+     write(stdout,'(/,3x,a)') filename
+     fileunit = io_file_unit()
+     open(fileunit,file=filename,form='formatted')
+
+     n = size(vals,3)
+     m = size(vals,2)
+
+     if(present(mask)) then
+        do i = 1,n
+           do j = 1,m
+              if(mask(j,i)) then
+                 write(fileunit, fmt) coords(:,i), vals(:,j,i)
+              end if
+           end do
+        end do
+        write(fileunit,*) ''
+     else
+        if(present(blocklen)) then
+           bl = blocklen
+        else
+           bl = n
+        end if
+
+        do i = 1,n
+           do j = 1,m
+              write(fileunit, fmt) coords(:,i), vals(:,j,i)
+           end do
+           if(mod(i,bl) == 0) then
+              write(fileunit, *) ''
+           end if
+        end do
+     end if
+     close(fileunit)
+  end subroutine
 
 end module w90_kslice
