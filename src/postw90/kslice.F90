@@ -64,7 +64,9 @@ module w90_kslice
     use w90_berry, only          : get_imfgh_k_list
     use w90_constants, only      : bohr
 
-    integer           :: loop_xy,loop_x,loop_y,n,n1,n2,n3,i,nkpts
+    integer, dimension(0:num_nodes-1) :: counts, displs
+
+    integer           :: loop_xy,loop_x,loop_y,n,n1,n2,n3,i,nkpts,my_nkpts
     integer           :: scriptunit
     real(kind=dp)     :: bvec(3,3),yvec(3),zvec(3),b1mod,b2mod,ymod,cosb1b2,&
                          areab1b2,cosyb2,kpt(3),kpt_x,kpt_y,k1,k2,&
@@ -84,11 +86,11 @@ module w90_kslice
     real(kind=dp),    allocatable :: eig(:)
 
     ! Output buffers
-    real(kind=dp), allocatable    :: coords(:,:), &
-                                     spndata(:,:,:), &
-                                     bandsdata(:,:,:), &
-                                     zdata(:,:)
-    logical, allocatable          :: spnmask(:,:)
+    real(kind=dp), allocatable    :: coords(:,:),      my_coords(:,:), &
+                                     spndata(:,:,:),   my_spndata(:,:,:), &
+                                     bandsdata(:,:,:), my_bandsdata(:,:,:), &
+                                     zdata(:,:),       my_zdata(:,:)
+    logical, allocatable          :: spnmask(:,:),     my_spnmask(:,:)
 
     ! Everything is done on the root node.  However, we still have to
     ! read and distribute the data if we are in parallel, so calls to
@@ -120,8 +122,9 @@ module w90_kslice
     if(plot_morb)   call get_morb_R 
     if(plot_curv)   call get_ahc_R 
 
-
     if(on_root) then
+       call k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
+    end if
 
        ! Set Cartesian components of the vectors (b1,b2) spanning the slice, 
        !
@@ -154,11 +157,13 @@ module w90_kslice
          square='False'
        end if  
 
-       call k_slice_print_info(plot_fermi_lines, plot_curv, plot_morb)
-
        nkpts = product(kslice_2dkmesh)
 
-       allocate(coords(2,nkpts))
+       ! Partition set of k-points into junks
+       call comms_array_split(nkpts, counts, displs);
+       my_nkpts = counts(my_node_id)
+
+       allocate(my_coords(2,my_nkpts))
 
        if(plot_fermi_lines) then
           allocate(HH(num_wann,num_wann))
@@ -166,25 +171,29 @@ module w90_kslice
           allocate(eig(num_wann))
           if(fermi_lines_color) then
              allocate(delHH(num_wann,num_wann,3))
-             allocate(spndata(1,num_wann,nkpts))
-             allocate(spnmask(num_wann,nkpts))
-             spnmask = .false.
+             allocate(my_spndata(1,num_wann,my_nkpts))
+             allocate(my_spnmask(num_wann,my_nkpts))
+             my_spnmask = .false.
           else
-             allocate(bandsdata(1,num_wann,nkpts))
+             allocate(my_bandsdata(1,num_wann,my_nkpts))
+             my_bandsdata = 999.0_dp
           end if
        end if
 
        if(heatmap) then
-          allocate(zdata(3,nkpts))
+          allocate(my_zdata(3,my_nkpts))
        end if
      
+       if(on_root) write(stdout, *) 'local work array allocations done.' 
+
        db1=1.0_dp/real(kslice_2dkmesh(1),dp)
        db2=1.0_dp/real(kslice_2dkmesh(2),dp)
 
+       
        ! Loop over uniform mesh of k-points on the slice
        !
-       do i = 1, nkpts
-          loop_xy = i-1
+       do i = 1, my_nkpts
+          loop_xy = displs(my_node_id) + i-1
           loop_x=loop_xy/kslice_2dkmesh(2)
           loop_y=loop_xy-loop_x*kslice_2dkmesh(2)          
           ! k1 and k2 are the coefficients of the k-point in the basis
@@ -196,7 +205,7 @@ module w90_kslice
           ! with x along x_vec=b1 and y along y_vec
           kpt_x=k1*b1mod+k2*b2mod*cosb1b2
           kpt_y=k2*b2mod*cosyb2
-          coords(:,i) = [kpt_x, kpt_y]
+          my_coords(:,i) = [kpt_x, kpt_y]
 
           if(plot_fermi_lines) then
              if(fermi_lines_color) then
@@ -215,17 +224,17 @@ module w90_kslice
                 call utility_diagonalize(HH,num_wann,eig,UU)
              endif
 
-             if(allocated(bandsdata)) then
-                bandsdata(1,:,i) = eig(:)
+             if(allocated(my_bandsdata)) then
+                my_bandsdata(1,:,i) = eig(:)
              else if(kslice_fermi_lines_colour=='spin') then
-                spndata(1,:,i) = spn_k(:)
+                my_spndata(1,:,i) = spn_k(:)
                 do n=1, num_wann
                    ! vdum = dE/dk projected on the k-slice
                    zhat=zvec/sqrt(dot_product(zvec,zvec))
                    vdum(:)=del_eig(n,:)-dot_product(del_eig(n,:),zhat)*zhat(:)
                    Delta_E=sqrt(dot_product(vdum,vdum))*Delta_k
 !                   Delta_E=Delta_E*sqrt(2.0_dp) ! optimize this factor
-                   spnmask(n,i) = abs(eig(n)-kslice_fermi_level)<Delta_E
+                   my_spnmask(n,i) = abs(eig(n)-kslice_fermi_level)<Delta_E
                 end do
              end if
           endif
@@ -237,7 +246,7 @@ module w90_kslice
              curv(3)=sum(imf_k_list(:,3,1))
              if(berry_curv_unit=='bohr2') curv=curv/bohr**2
              ! Print the negative Berry curvature
-             zdata(:,i) = -curv(:)
+             my_zdata(:,i) = -curv(:)
           else if(plot_morb) then
              call get_imfgh_k_list(kpt,imf_k_list,img_k_list,imh_k_list)
              Morb_k=img_k_list(:,:,1)+imh_k_list(:,:,1)&
@@ -246,10 +255,73 @@ module w90_kslice
              morb(1)=sum(Morb_k(:,1))
              morb(2)=sum(Morb_k(:,2))
              morb(3)=sum(Morb_k(:,3))
-             zdata(:,i) = morb(:)
+             my_zdata(:,i) = morb(:)
           end if
 
        end do !loop_xy
+
+       if(on_root) write(stdout, *) 'calculation finished.' 
+
+    ! Send results to root process
+    if(on_root) then
+       allocate(coords(2,nkpts))
+    else
+       allocate(coords(1,1))
+    end if
+       if(on_root) write(stdout, *) 'doing gatherv for coords.' 
+    call comms_gatherv(my_coords(1,1), 2*my_nkpts, &
+                       coords(1,1), 2*counts, 2*displs)
+
+    if(allocated(my_spndata)) then
+       if(on_root) then
+          allocate(spndata(1,num_wann,nkpts))
+       else
+          allocate(spndata(1,1,1))
+       end if
+       if(on_root) write(stdout, *) 'doing gatherv for spndata.' 
+       call comms_gatherv(my_spndata(1,1,1), num_wann*my_nkpts, &
+                          spndata(1,1,1), num_wann*counts, num_wann*displs)
+    end if
+
+    if(allocated(my_spnmask)) then
+       if(on_root) then
+          allocate(spnmask(num_wann,nkpts))
+       else
+          allocate(spnmask(1,1))
+       end if
+       if(on_root) write(stdout, *) 'doing gatherv for spnmask.' 
+       call comms_gatherv(my_spnmask(1,1), num_wann*my_nkpts, &
+                          spnmask(1,1), num_wann*counts, num_wann*displs)
+    end if
+
+    if(allocated(my_bandsdata)) then
+       if(on_root) then
+          allocate(bandsdata(1,num_wann,nkpts))
+          bandsdata = 666.0_dp
+       else
+          allocate(bandsdata(1,1,1))
+       end if
+       if(on_root) write(stdout, *) 'doing gatherv for bandsdata.' 
+       call comms_gatherv(my_bandsdata(1,1,1), num_wann*my_nkpts, &
+                          bandsdata(1,1,1), num_wann*counts, num_wann*displs)
+    end if
+
+    if(allocated(my_zdata)) then
+       if(on_root) then
+          allocate(zdata(3,nkpts))
+       else
+          allocate(zdata(1,1))
+       end if
+       if(on_root) write(stdout, *) 'doing gatherv for zdata.' 
+       call comms_gatherv(my_zdata(1,1), 3*my_nkpts, &
+                          zdata(1,1), 3*counts, 3*displs)
+    end if
+
+    ! Write output files
+    if(on_root) then
+       ! set kpt_x and kpt_y to last evaluated point
+       kpt_x = coords(1,nkpts)
+       kpt_y = coords(2,nkpts)
 
        write(stdout,'(/,/,1x,a)') 'Output files:'
        
@@ -770,7 +842,6 @@ module w90_kslice
               end if
            end do
         end do
-        write(fileunit,*) ''
      else
         if(present(blocklen)) then
            bl = blocklen
@@ -787,6 +858,7 @@ module w90_kslice
            end if
         end do
      end if
+     write(fileunit,*) ''
      close(fileunit)
   end subroutine
 

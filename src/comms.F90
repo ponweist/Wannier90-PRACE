@@ -90,6 +90,7 @@ module w90_comms
   interface comms_gatherv
 !     module procedure comms_gatherv_int    ! to be done
      module procedure comms_gatherv_real
+     module procedure comms_gatherv_logical
 !     module procedure comms_gatherv_cmplx
   end interface comms_gatherv
 
@@ -828,6 +829,37 @@ contains
 
   end subroutine comms_gatherv_real
 
+
+  ! Array: local array for sending data; localcount elements will be sent
+  !        to the root node
+  ! rootglobalarray: array on the root node to which data will be sent
+  ! counts, displs : how data should be partitioned, see MPI documentation or
+  !                  function comms_array_split
+  subroutine comms_gatherv_logical(array,localcount,rootglobalarray,counts,displs)
+
+    implicit none
+
+    logical, intent(inout)           :: array
+    integer, intent(in)                       :: localcount
+    logical, intent(inout)           :: rootglobalarray
+    integer, dimension(num_nodes), intent(in) :: counts
+    integer, dimension(num_nodes), intent(in) :: displs
+
+#ifdef MPI
+    integer :: error
+
+    call MPI_gatherv(array,localcount,MPI_logical,rootglobalarray,counts,&
+         displs,MPI_logical,root_id,mpi_comm_world,error)
+
+    if(error.ne.MPI_success) then
+       call io_error('Error in comms_gatherv_logical')
+    end if
+#else
+    ! TODO
+    call io_error('comms_gatherv_logical not implemented for use without mpi')
+#endif
+
+  end subroutine comms_gatherv_logical
 
   ! Array: local array for getting data; localcount elements will be fetched
   !        from the root node

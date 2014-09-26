@@ -105,7 +105,7 @@ contains
                                        intent(out) :: prod1, prod2
 
      complex(kind=dp), dimension(:,:), allocatable :: tmp
-     integer                                       :: na, nb, mc, i, j
+     integer                                       :: nb, mc, i, j
 
      ! query matrix sizes
      ! naming convention:
