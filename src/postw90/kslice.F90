@@ -184,8 +184,6 @@ module w90_kslice
           allocate(my_zdata(3,my_nkpts))
        end if
      
-       if(on_root) write(stdout, *) 'local work array allocations done.' 
-
        db1=1.0_dp/real(kslice_2dkmesh(1),dp)
        db2=1.0_dp/real(kslice_2dkmesh(2),dp)
 
@@ -260,15 +258,12 @@ module w90_kslice
 
        end do !loop_xy
 
-       if(on_root) write(stdout, *) 'calculation finished.' 
-
     ! Send results to root process
     if(on_root) then
        allocate(coords(2,nkpts))
     else
        allocate(coords(1,1))
     end if
-       if(on_root) write(stdout, *) 'doing gatherv for coords.' 
     call comms_gatherv(my_coords(1,1), 2*my_nkpts, &
                        coords(1,1), 2*counts, 2*displs)
 
@@ -278,7 +273,6 @@ module w90_kslice
        else
           allocate(spndata(1,1,1))
        end if
-       if(on_root) write(stdout, *) 'doing gatherv for spndata.' 
        call comms_gatherv(my_spndata(1,1,1), num_wann*my_nkpts, &
                           spndata(1,1,1), num_wann*counts, num_wann*displs)
     end if
@@ -289,7 +283,6 @@ module w90_kslice
        else
           allocate(spnmask(1,1))
        end if
-       if(on_root) write(stdout, *) 'doing gatherv for spnmask.' 
        call comms_gatherv(my_spnmask(1,1), num_wann*my_nkpts, &
                           spnmask(1,1), num_wann*counts, num_wann*displs)
     end if
@@ -301,7 +294,6 @@ module w90_kslice
        else
           allocate(bandsdata(1,1,1))
        end if
-       if(on_root) write(stdout, *) 'doing gatherv for bandsdata.' 
        call comms_gatherv(my_bandsdata(1,1,1), num_wann*my_nkpts, &
                           bandsdata(1,1,1), num_wann*counts, num_wann*displs)
     end if
@@ -312,7 +304,6 @@ module w90_kslice
        else
           allocate(zdata(1,1))
        end if
-       if(on_root) write(stdout, *) 'doing gatherv for zdata.' 
        call comms_gatherv(my_zdata(1,1), 3*my_nkpts, &
                           zdata(1,1), 3*counts, 3*displs)
     end if
