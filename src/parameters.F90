@@ -419,6 +419,7 @@ contains
     use w90_constants, only : bohr, eps6
     use w90_utility,   only : utility_recip_lattice,utility_metric
     use w90_io,        only : io_error,io_file_unit,seedname,post_proc_flag
+    use w90_comms,     only : on_root, comms_bcast
     implicit none
 
     !local variables
@@ -428,7 +429,8 @@ contains
     character(len=6) :: spin_str
     real(kind=dp) :: cosa(3),rv_temp(3)
 
-    call param_in_file
+
+    call param_in_file  !!! gosia parallelized
 
     !%%%%%%%%%%%%%%%%
     ! Transport 
@@ -534,7 +536,7 @@ contains
 
 !    mp_grid=-99
     call param_get_keyword_vector('mp_grid',found,3,i_value=iv_temp)
-    if(found.and.library) write(stdout,'(a)') ' Ignoring <mp_grid> in input file'
+    if(found.and.library .and. on_root) write(stdout,'(a)') ' Ignoring <mp_grid> in input file'
     if(.not.library .and. .not.effective_model) then
        if(found) mp_grid=iv_temp
        if (.not. found) then
@@ -553,7 +555,7 @@ contains
        if ( gamma_only .and. (num_kpts.ne.1) ) &
             call io_error('Error: gamma_only is true, but num_kpts > 1')
     else
-       if (found) write(stdout,'(a)') ' Ignoring <gamma_only> in input file'
+       if (found .and. on_root) write(stdout,'(a)') ' Ignoring <gamma_only> in input file'
     endif
 ![ysl-e]
 
@@ -600,7 +602,7 @@ contains
     if (.not.library) then
        spinors=ltmp
     else
-       if (found) write(stdout,'(a)') ' Ignoring <spinors> in input file'
+       if (found .and. on_root) write(stdout,'(a)') ' Ignoring <spinors> in input file'
     endif
 !    if(spinors .and. (2*(num_wann/2))/=num_wann) &
 !       call io_error('Error: For spinor WF num_wann must be even')
@@ -1311,6 +1313,7 @@ contains
              allocate(eigval(num_bands,num_kpts),stat=ierr)
              if (ierr/=0) call io_error('Error allocating eigval in param_read')
 
+           if(on_root) then
              eig_unit=io_file_unit()
              open(unit=eig_unit,file=trim(seedname)//'.eig',form='formatted',status='old',err=105)
              do k=1,num_kpts
@@ -1331,6 +1334,10 @@ contains
                 enddo
              end do
              close(eig_unit)
+           endif !on_root
+
+           call bcast (eigval, num_bands*num_kpts)
+
           end if
        end if
     end if
@@ -1665,7 +1672,7 @@ contains
 
 
     call param_get_keyword_block('unit_cell_cart',found,3,3,r_value=real_lattice_tmp)
-    if(found.and.library) write(stdout,'(a)') ' Ignoring <unit_cell_cart> in input file'
+    if(found.and.library .and. on_root) write(stdout,'(a)') ' Ignoring <unit_cell_cart> in input file'
     if (.not. library) then
        real_lattice=transpose(real_lattice_tmp)
        if(.not. found) call io_error('Error: Did not find the cell information in the input file')
@@ -1683,7 +1690,7 @@ contains
     end if
 
     call param_get_keyword_block('kpoints',found,num_kpts,3,r_value=kpt_cart)
-    if(found.and.library) write(stdout,'(a)') ' Ignoring <kpoints> in input file'
+    if(found.and.library .and. on_root) write(stdout,'(a)') ' Ignoring <kpoints> in input file'
     if (.not. library .and. .not.effective_model) then
        kpt_latt=kpt_cart
        if(.not. found) call io_error('Error: Did not find the kpoint information in the input file')
@@ -1758,9 +1765,9 @@ contains
     ! Atoms
     if (.not.library) num_atoms=0
     call param_get_block_length('atoms_frac',found,i_temp)
-    if (found.and.library) write(stdout,'(a)') ' Ignoring <atoms_frac> in input file'
+    if (found.and.library .and. on_root) write(stdout,'(a)') ' Ignoring <atoms_frac> in input file'
     call param_get_block_length('atoms_cart',found2,i_temp2,lunits)
-    if (found2.and.library) write(stdout,'(a)') ' Ignoring <atoms_cart> in input file'
+    if (found2.and.library .and. on_root) write(stdout,'(a)') ' Ignoring <atoms_cart> in input file'
     if (.not.library) then
        if (found.and.found2) call io_error('Error: Cannot specify both atoms_frac and atoms_cart')
        if (found .and. i_temp>0) then
@@ -1785,7 +1792,7 @@ contains
 
 302  continue
 
-    if ( any(len_trim(in_data(:))>0 )) then
+    if ( any(len_trim(in_data(:))>0 ) .and. on_root) then
        write(stdout,'(1x,a)') 'The following section of file '//trim(seedname)//'.win contained unrecognised keywords'
        write(stdout,*) 
        do loop=1,num_lines
@@ -1802,7 +1809,7 @@ contains
     ! For aesthetic purposes, convert some things to uppercase
     call param_uppercase()
 
-303  continue
+303  continue 
 
     deallocate(in_data,stat=ierr)
     if (ierr/=0) call io_error('Error deallocating in_data in param_read')
@@ -3270,6 +3277,7 @@ endif
 
     use w90_io,        only : io_file_unit,io_error,seedname
     use w90_utility,   only : utility_lowercase
+    use w90_comms,     only : on_root, comms_bcast
 
     implicit none
 
@@ -3278,6 +3286,7 @@ endif
     integer           :: pos
     character, parameter :: TABCHAR = char(9)
 
+if(on_root) then
     in_unit=io_file_unit( )
     open (in_unit, file=trim(seedname)//'.win',form='formatted',status='old',err=101)
 
@@ -3303,10 +3312,12 @@ endif
 200 call io_error('Error: Problem reading input file '//trim(seedname)//'.win')
 210 continue
     rewind(in_unit)
+endif
 
     allocate(in_data(num_lines),stat=ierr)
     if (ierr/=0) call io_error('Error allocating in_data in param_in_file')
 
+if(on_root) then
     line_counter=0
     do loop=1,tot_num_lines
        read(in_unit, '(a)', iostat = ierr, err= 200 ) dummy
@@ -3329,8 +3340,10 @@ endif
        if(in2==0 .and. in1>0 )  in_data(line_counter)=dummy(:in1-1)
        if(in2>0 .and. in1>0 )   in_data(line_counter)=dummy(:min(in1,in2)-1)
     end do
-
     close(in_unit)
+endif !on_root
+
+    call comms_bcast(in_data, num_lines)
 
   end subroutine param_in_file
 
@@ -4865,6 +4878,8 @@ endif
     !                                           !
     !===========================================!
 
+    use w90_comms, only : on_root
+
     implicit none
 
     real(kind=dp), parameter :: size_log=1.0_dp
@@ -5065,6 +5080,7 @@ endif
     if(disentanglement) &
          mem_wan= mem_wan+ num_wann*num_wann*nntot*num_kpts*size_cmplx       !m_matrix
 
+   if(on_root) then
      write(stdout,'(1x,a)') '*============================================================================*'
      write(stdout,'(1x,a)')  '|                              MEMORY ESTIMATE                               |'
      write(stdout,'(1x,a)')  '|         Maximum RAM allocated during each phase of the calculation         |'
@@ -5100,6 +5116,8 @@ endif
 !    end if
 !    write(*,'(a12,f12.4,a)') 'Wannierise ',(mem_wan+mem_param)/(1024**2),' Mb'
 !    write(*,'(a12,f12.4,a)') 'Module',(mem_param)/(1024**2),' Mb'
+
+   endif !on_root
 
     return
   end subroutine param_memory_estimate

@@ -59,6 +59,7 @@ program wannier
   use w90_wannierise
   use w90_plot
   use w90_transport
+  use w90_comms, only : on_root, num_nodes, comms_setup, comms_end, comms_bcast
  
   implicit none
 
@@ -66,17 +67,29 @@ program wannier
   character(len=9) :: stat,pos,cdate,ctime
   logical :: wout_found
 
-  time0=io_time()
+  
+  call comms_setup
 
   library = .false.
 
+if(on_root) then
+  time0=io_time()
   call io_get_seedname()
+  len_seedname = len(seedname)
+endif
+  call comms_bcast(len_seedname,1)
+  call comms_bcast(seedname,len_seedname)
 
+if (on_root) then
   stdout=io_file_unit()
   open(unit=stdout,file=trim(seedname)//'.werr')
   call io_date(cdate,ctime)
   write(stdout,*)  'Wannier90: Execution started on ',cdate,' at ',ctime
-  call param_read()
+endif
+
+  call param_read()   
+
+if (on_root) then
   close(stdout,status='delete')
 
   if (restart.eq.' ') then
@@ -94,66 +107,86 @@ program wannier
 
   stdout=io_file_unit()
   open(unit=stdout,file=trim(seedname)//'.wout',status=trim(stat),position=trim(pos))
+
   call param_write_header()
   call param_write()
 
   time1=io_time()
   write(stdout,'(1x,a25,f11.3,a)') 'Time to read parameters  ',time1-time0,' (sec)'
+     if(num_nodes==1) then
+#ifdef MPI
+        write(stdout,'(/,1x,a)') 'Running in serial (with parallel executable)'
+#else
+        write(stdout,'(/,1x,a)') 'Running in serial (with serial executable)'
+#endif
+     else
+        write(stdout,'(/,1x,a,i3,a/)')&
+             'Running in parallel on ',num_nodes,' CPUs'
+     endif
+end if !on_root
+
 
   if (transport .and. tran_read_ht) goto 3003
 
-  call kmesh_get()
+  call kmesh_get()   
   call param_memory_estimate()
 
   ! Sort out restarts
   if (restart.eq.' ') then  ! start a fresh calculation
-     write(stdout,'(1x,a/)') 'Starting a new Wannier90 calculation ...'
+     if(on_root) write(stdout,'(1x,a/)') 'Starting a new Wannier90 calculation ...'
   else                      ! restart a previous calculation
-     call param_read_chkpt()
+     if(on_root) call param_read_chkpt()
 !!$     call param_read_um
      select case (restart)
         case ('default')    ! continue from where last checkpoint was written
-           write(stdout,'(/1x,a)',advance='no') 'Resuming a previous Wannier90 calculation '
+           if(on_root) write(stdout,'(/1x,a)',advance='no') 'Resuming a previous Wannier90 calculation '
            if (checkpoint.eq.'postdis') then 
-              write(stdout,'(a/)') 'from wannierisation ...'
+              if(on_root) write(stdout,'(a/)') 'from wannierisation ...'
               goto 1001         ! go to wann_main
            elseif (checkpoint.eq.'postwann') then
-              write(stdout,'(a/)') 'from plotting ...'
+              if(on_root) write(stdout,'(a/)') 'from plotting ...'
               goto 2002         ! go to plot_main
            else
-              write(stdout,'(/a/)')
-              call io_error('Value of checkpoint not recognised in wann_prog')
+              if(on_root) then
+                  write(stdout,'(/a/)')
+                  call io_error('Value of checkpoint not recognised in wann_prog')
+              endif
            endif
         case ('wannierise') ! continue from wann_main irrespective of value of last checkpoint
-           write(stdout,'(1x,a/)') 'Restarting Wannier90 from wannierisation ...'
+           if(on_root)  write(stdout,'(1x,a/)') 'Restarting Wannier90 from wannierisation ...'
            goto 1001
         case ('plot')       ! continue from plot_main irrespective of value of last checkpoint 
-           write(stdout,'(1x,a/)') 'Restarting Wannier90 from plotting routines ...'
+           if(on_root)  write(stdout,'(1x,a/)') 'Restarting Wannier90 from plotting routines ...'
            goto 2002       
         case ('transport')   ! continue from tran_main irrespective of value of last checkpoint 
-           write(stdout,'(1x,a/)') 'Restarting Wannier90 from transport routines ...'
+           if(on_root)  write(stdout,'(1x,a/)') 'Restarting Wannier90 from transport routines ...'
            goto 3003       
         case default        ! for completeness... (it is already trapped in param_read)
-           call io_error('Value of restart not recognised in wann_prog')
+           if(on_root)  call io_error('Value of restart not recognised in wann_prog')
      end select
   endif
 
   if (postproc_setup) then
-     call kmesh_write()
+     if(on_root)  call kmesh_write()
      call kmesh_dealloc()
      call param_dealloc()
-     write(stdout,'(1x,a25,f11.3,a)') 'Time to write kmesh      ',io_time(),' (sec)'
-     write(stdout,'(/a)') ' Exiting... '//trim(seedname)//'.nnkp written.'
+     if(on_root) then
+        write(stdout,'(1x,a25,f11.3,a)') 'Time to write kmesh      ',io_time(),' (sec)'
+        write(stdout,'(/a)') ' Exiting... '//trim(seedname)//'.nnkp written.'
+     endif       
      stop
   endif
 
-  time2=io_time()
-  write(stdout,'(1x,a25,f11.3,a)') 'Time to get kmesh        ',time2-time1,' (sec)'
+
+   time2=io_time()
+
+  if(on_root) write(stdout,'(1x,a25,f11.3,a)') 'Time to get kmesh        ',time2-time1,' (sec)'
 
   call overlap_read()
 
+  if(on_root) write(stdout,'(/1x,a25,f11.3,a)') 'Time to read overlaps    ',time1-time2,' (sec)'
+
   time1=io_time()
-  write(stdout,'(/1x,a25,f11.3,a)') 'Time to read overlaps    ',time1-time2,' (sec)'
 
   have_disentangled = .false.
 
@@ -161,10 +194,12 @@ program wannier
      call dis_main()
      have_disentangled=.true.
      time2=io_time()
-     write(stdout,'(1x,a25,f11.3,a)') 'Time to disentangle bands',time2-time1,' (sec)'     
+     if(on_root) then
+        write(stdout,'(1x,a25,f11.3,a)') 'Time to disentangle bands',time2-time1,' (sec)'     
+     endif
   endif
 
-  call param_write_chkpt('postdis')
+  if(on_root)  call param_write_chkpt('postdis')
 !!$  call param_write_um
 
 1001 time2=io_time()
@@ -174,26 +209,31 @@ program wannier
   else
        call wann_main_gamma()
   end if
-
-  time1=io_time()
-  write(stdout,'(1x,a25,f11.3,a)') 'Time for wannierise      ',time1-time2,' (sec)'     
-
-  call param_write_chkpt('postwann')
+  
+if(on_root) then
+   time1=io_time()
+   write(stdout,'(1x,a25,f11.3,a)') 'Time for wannierise      ',time1-time2,' (sec)'     
+   call param_write_chkpt('postwann')
+endif
 
 2002 time2=io_time()
 
   if (wannier_plot .or. bands_plot .or. fermi_surface_plot .or. hr_plot) then
+  if(on_root) then
      call plot_main()
      time1=io_time()
      write(stdout,'(1x,a25,f11.3,a)') 'Time for plotting        ',time1-time2,' (sec)'
+  endif
   end if
 
 3003 time2=io_time()
 
   if (transport) then
      call tran_main()
-     time1=io_time()
-     write(stdout,'(1x,a25,f11.3,a)') 'Time for transport       ',time1-time2,' (sec)'
+     if(on_root) then
+        time1=io_time()
+        write(stdout,'(1x,a25,f11.3,a)') 'Time for transport       ',time1-time2,' (sec)'
+     endif
      if (tran_read_ht) goto 4004
   end if
 
@@ -205,16 +245,17 @@ program wannier
 
 4004 continue 
 
+  call comms_barrier
+
+if(on_root) then
   write(stdout,'(1x,a25,f11.3,a)') 'Total Execution Time     ',io_time(),' (sec)'
-
   if (timing_level>0) call io_print_timings()
-
   write(stdout,*) 
   write(stdout,'(1x,a)') 'All done: wannier90 exiting'
- 
   close(stdout)
+endif
 
-
+  call comms_end
 
 end program wannier
   

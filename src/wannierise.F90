@@ -14,6 +14,7 @@
 module w90_wannierise
 
   use w90_constants
+  use w90_comms, only : on_root, num_nodes, comms_bcast
 
   implicit none
 
@@ -181,7 +182,7 @@ contains
 
     ! initialise rguide to projection centres (Cartesians in units of Ang)
     if( guiding_centres) then
-       do n=1,num_proj
+       do n=1,num_proj  
           call utility_frac_to_cart(proj_site(:,n),rguide(:,n),real_lattice)
        enddo
 !       if(spinors) then ! not needed with new changes to spinor proj 2013 JRY
@@ -191,6 +192,7 @@ contains
 !       end if
     end if
 
+  if(on_root) then
     write(stdout,*)
     write(stdout,'(1x,a)') '*------------------------------- WANNIERISE ---------------------------------*'
     write(stdout,'(1x,a)') '+--------------------------------------------------------------------+<-- CONV'
@@ -201,15 +203,16 @@ contains
     endif
     write(stdout,'(1x,a)') '+--------------------------------------------------------------------+<-- CONV'
     write(stdout,*)
+  endif
 
 
-    irguide=0
+    irguide=0   
     if (guiding_centres.and.(num_no_guide_iter.le.0)) then
        call wann_phases(csheet,sheet,rguide,irguide)
        irguide=1
     endif
 
-    ! calculate initial centers and spread
+    ! calculate initial centers and spread   
     call wann_omega(csheet,sheet,rave,r2ave,rave2,wann_spread)
 
     ! public variables
@@ -227,6 +230,7 @@ contains
     old_spread%om_tot = 0.0_dp
 
     ! print initial state
+  if(on_root) then
     write(stdout,'(1x,a78)') repeat('-',78) 
     write(stdout,'(1x,a)') 'Initial State'
     do iw=1,num_wann
@@ -242,11 +246,12 @@ contains
          'O_D=',wann_spread%om_d*lenconfac**2,' O_OD=',wann_spread%om_od*lenconfac**2,&
          ' O_TOT=',wann_spread%om_tot*lenconfac**2,' <-- SPRD'
     write(stdout,'(1x,a78)') repeat('-',78) 
+  endif
 
     lconverged=.false. ; lfirst=.true. ; lrandom=.false.
     conv_count=0 ; noise_count=0
 
-    if(.not.lfixstep .and.optimisation<=0) then
+    if(.not.lfixstep .and.optimisation<=0 .and. on_root) then
        page_unit=io_file_unit()
        open(unit=page_unit,status='scratch',form='unformatted')
     endif
@@ -261,7 +266,7 @@ contains
        ldump=.false.
        if ( (num_dump_cycles.gt.0) .and. (mod(iter,num_dump_cycles).eq.0) ) ldump=.true.
 
-       if(lprint) write(stdout,'(1x,a,i6)') 'Cycle: ',iter
+       if(lprint .and. on_root) write(stdout,'(1x,a,i6)') 'Cycle: ',iter
 
        if ( guiding_centres.and.(iter.gt.num_no_guide_iter) & 
             .and.(mod(iter,num_guide_cycles).eq.0) ) then
@@ -272,10 +277,10 @@ contains
        ! calculate gradient of omega
        call wann_domega(csheet,sheet,rave,cdodq)
 
-       if ( lprint .and. iprint>2 ) &
+       if ( lprint .and. iprint>2 .and. on_root) &
             write(stdout,*) ' LINE --> Iteration                     :',iter
 
-       ! calculate search direction (cdq)
+       ! calculate search direction (cdq) 
        call internal_search_direction()
 
        ! save search direction 
@@ -295,9 +300,11 @@ contains
           ! store original U and M before rotating
           u0=u_matrix 
 
-          if(optimisation<=0) then
-             write(page_unit)   m_matrix
-             rewind(page_unit)
+          if(optimisation<=0 ) then
+             if(on_root) then
+                write(page_unit)   m_matrix
+                rewind(page_unit)
+             endif
           else
              m0=m_matrix
           endif
@@ -314,7 +321,7 @@ contains
        endif
 
        ! print line search information
-       if ( lprint .and. iprint>2 ) then
+       if ( lprint .and. iprint>2 .and. on_root) then
           write(stdout,*) ' LINE --> Spread at initial point       :',wann_spread%om_tot*lenconfac**2
           if (.not.lfixstep) &
                write(stdout,*) ' LINE --> Spread at trial step          :',trial_spread%om_tot*lenconfac**2
@@ -342,7 +349,7 @@ contains
           ! if doing a line search then restore original U and M before rotating 
           if (.not.lfixstep) then 
              u_matrix=u0
-             if(optimisation<=0) then
+             if(optimisation<=0 .and. on_root) then
                 read(page_unit)  m_matrix
                 rewind(page_unit)
              else
@@ -368,7 +375,7 @@ contains
  
 
        ! print the new centers and spreads
-       if(lprint) then
+       if(lprint .and. on_root) then
           do iw=1,num_wann
              write(stdout,1000) iw,(rave(ind,iw)*lenconfac,ind=1,3),&
                   (r2ave(iw) - rave2(iw))*lenconfac**2
@@ -399,22 +406,24 @@ contains
        omega_total = wann_spread%om_tot
        omega_tilde = wann_spread%om_d + wann_spread%om_od
 
-       if (ldump) call param_write_chkpt('postdis')
+       if (ldump .and. on_root) call param_write_chkpt('postdis')  
 
-       if (conv_window.gt.1) call internal_test_convergence()
+       if (conv_window.gt.1) call internal_test_convergence() 
 
        if (lconverged) then 
-          write(stdout,'(/13x,a,es10.3,a,i2,a)') &
+          if(on_root) then
+             write(stdout,'(/13x,a,es10.3,a,i2,a)') &
                '<<<     Delta <',conv_tol,&
                '  over ',conv_window,' iterations     >>>'
-          write(stdout,'(13x,a/)')  '<<< Wannierisation convergence criteria satisfied >>>'
+             write(stdout,'(13x,a/)')  '<<< Wannierisation convergence criteria satisfied >>>'
+          endif
           exit
        endif
 
     enddo
     ! end of the minimization loop
 
-
+  if(on_root) then
     write(stdout,'(1x,a)') 'Final State'
     do iw=1,num_wann
        write(stdout,1000) iw,(rave(ind,iw)*lenconfac,ind=1,3),&
@@ -434,18 +443,21 @@ contains
     write(stdout,'(1x,a78)') repeat('-',78) 
 
     if (write_xyz) call wann_write_xyz()
+  endif
 
-    if(write_hr_diag) then
+    if(write_hr_diag) then   
        call hamiltonian_setup()
        call hamiltonian_get_hr()
-       write(stdout,*)
-       write(stdout,'(1x,a)') 'On-site Hamiltonian matrix elements'
-       write(stdout,'(3x,a)') '  n        <0n|H|0n> (eV)'
-       write(stdout,'(3x,a)') '-------------------------'
-       do i=1,num_wann
-          write(stdout,'(3x,i3,5x,f12.6)') i,real(ham_r(i,i,rpt_origin),kind=dp)
-       enddo
-       write(stdout,*)
+       if(on_root) then
+         write(stdout,*)
+         write(stdout,'(1x,a)') 'On-site Hamiltonian matrix elements'
+         write(stdout,'(3x,a)') '  n        <0n|H|0n> (eV)'
+         write(stdout,'(3x,a)') '-------------------------'
+         do i=1,num_wann
+            write(stdout,'(3x,i3,5x,f12.6)') i,real(ham_r(i,i,rpt_origin),kind=dp)
+         enddo
+         write(stdout,*)
+       endif
     endif
 
     if (guiding_centres) call wann_phases(csheet,sheet,rguide,irguide)
@@ -460,13 +472,13 @@ contains
 
     ! write matrix elements <m|r^2|n> to file
 !!$    if (write_r2mn) call internal_write_r2mn()
-    if (write_r2mn) call wann_write_r2mn()
+    if (write_r2mn) call wann_write_r2mn()    
 
     ! calculate and write projection of WFs on original bands in outer window
-    if (have_disentangled .and. write_proj) call wann_calc_projection()
+    if (have_disentangled .and. write_proj) call wann_calc_projection()  
 
     ! aam: write data required for vdW utility
-    if (write_vdw_data) call wann_write_vdw_data()
+    if (write_vdw_data) call wann_write_vdw_data()  
 
     ! deallocate sub vars not passed into other subs
     deallocate(rwork,stat=ierr)
@@ -566,7 +578,7 @@ contains
       if (conv_count.lt.conv_window) then
          return
       else
-!!$         write(stdout,*) (history(j),j=1,conv_window)
+!!$         if(on_root) write(stdout,*) (history(j),j=1,conv_window)
          do j=1,conv_window
             if ( abs(history(j)).gt.conv_tol ) return
          enddo
@@ -717,9 +729,9 @@ contains
 
       ! add some random noise to search direction, if required
       if (lrandom) then
-         write(stdout,'(a,i3,a,i3,a)') &
+         if(on_root) write(stdout,'(a,i3,a,i3,a)') &
               ' [ Adding random noise to search direction. Time ',noise_count,' / ',conv_noise_num,' ]'
-         call internal_random_noise()
+         call internal_random_noise()  
       endif
       ! calculate gradient along search direction - Tr[gradient . search direction]
       ! NB gradient is anti-hermitian
@@ -730,7 +742,7 @@ contains
       if (doda0.gt.0.0_dp) then
          ! if doing a CG step then reset CG
          if (ncg.gt.0) then
-            if ( lprint .and. iprint>2 ) &
+            if ( lprint .and. iprint>2 .and. on_root) &
                  write(stdout,*) ' LINE --> Search direction uphill: resetting CG'
             cdq(:,:,:) = cdodq(:,:,:)
             if (lrandom) call internal_random_noise()
@@ -741,14 +753,14 @@ contains
             doda0 = doda0 / (4.0_dp*wbtot)
             ! if search direction still uphill then reverse search direction
             if (doda0.gt.0.0_dp) then
-               if ( lprint .and. iprint>2 ) &
+               if ( lprint .and. iprint>2 .and. on_root) &
                     write(stdout,*) ' LINE --> Search direction still uphill: reversing'
                cdq(:,:,:) = -cdq(:,:,:)
                doda0 = -doda0
             endif
             ! if doing a SD step then reverse search direction
          else
-            if ( lprint .and. iprint>2 ) &
+            if ( lprint .and. iprint>2 .and. on_root) &
                  write(stdout,*) ' LINE --> Search direction uphill: reversing'
             cdq(:,:,:) = -cdq(:,:,:)
             doda0 = -doda0
@@ -841,16 +853,18 @@ contains
          ! Hermitian matrix eigen-solver
          call zheev('V','U',num_wann,tmp_cdq,num_wann,evals,cwork,4*num_wann,rwork,info)
          if (info.ne.0) then  
+           if(on_root) then
             write(stdout,*) &
                  'wann_main: ZHEEV in internal_new_u_and_m failed, info= ',info
             write(stdout,*) '           trying Schur decomposition instead'
+           endif
 !!$            call io_error('wann_main: problem in ZHEEV in internal_new_u_and_m') 
             tmp_cdq(:,:) = cdq(:,:,nkp)
             call zgees ('V', 'N', ltmp, num_wann, tmp_cdq, num_wann, nsdim, &
                  cwschur1, cz, num_wann, cwschur2, 10 * num_wann, cwschur3, &
                  cwschur4, info)
             if (info.ne.0) then  
-               write(stdout,*) 'wann_main: SCHUR failed, info= ', info  
+               if(on_root) write(stdout,*) 'wann_main: SCHUR failed, info= ', info  
                call io_error('wann_main: problem computing schur form 1') 
             endif
             do i=1,num_wann
@@ -1637,12 +1651,14 @@ contains
 
     if (timing_level>1) call io_stopwatch('wann: calc_projection',1)
 
+  if(on_root) then
     write(stdout,'(/1x,a78)') repeat('-',78)
     write(stdout,'(1x,9x,a)') &
          'Projection of Bands in Outer Window on all Wannier Functions'
     write(stdout,'(1x,8x,62a)') repeat('-',62)
     write(stdout,'(1x,16x,a)') '   Kpt  Band      Eigval      |Projection|^2'
     write(stdout,'(1x,16x,a47)') repeat('-',47) 
+  endif
 
     do nkp=1,num_kpts
        counter=0
@@ -1653,12 +1669,12 @@ contains
              do nw=1,num_wann
                 summ=summ+abs(u_matrix_opt(counter,nw,nkp))**2
              enddo
-             write(stdout,'(1x,16x,i5,1x,i5,1x,f14.6,2x,f14.8)') &
-                  nkp,nb,eigval(nb,nkp),summ
+             if(on_root) write(stdout,'(1x,16x,i5,1x,i5,1x,f14.6,2x,f14.8)') &
+                           nkp,nb,eigval(nb,nkp),summ
           endif
        enddo
     enddo
-    write(stdout,'(1x,a78/)') repeat('-',78)
+    if(on_root) write(stdout,'(1x,a78/)') repeat('-',78)
 
     if (timing_level>1) call io_stopwatch('wann: calc_projection',2)
 
@@ -1840,6 +1856,7 @@ contains
     endif
 
     ! aam: write the seedname.vdw file directly here
+if(on_root) then
     vdw_unit=io_file_unit()
     open(unit=vdw_unit,file=trim(seedname)//'.vdw',action='write')
     if (have_disentangled) then
@@ -1863,8 +1880,8 @@ contains
        write(vdw_unit,'(4(f13.10,1x),1x,f11.8)') wc(1:3,iw),ws(iw),real(f_w(iw,iw))
     end do
     close(vdw_unit)
-
     write(stdout,'(/a/)') ' vdW data written to file '//trim(seedname)//'.vdw'
+endif
 
     if (have_disentangled) then
        deallocate(v_matrix,stat=ierr)
@@ -1960,7 +1977,7 @@ contains
     ! note that here I use formulas analogue to Eq. 23, and not to the
     ! shift-invariant Eq. 32 .
     r2mnunit=io_file_unit()
-    open(r2mnunit,file=trim(seedname)//'.r2mn',form='formatted',err=158)
+    if(on_root) open(r2mnunit,file=trim(seedname)//'.r2mn',form='formatted',err=158)
     do nw1 = 1, num_wann  
        do nw2 = 1, num_wann  
           r2ave_mn = 0.0_dp  
@@ -1976,7 +1993,7 @@ contains
              enddo
           enddo
           r2ave_mn = r2ave_mn / real(num_kpts,dp)  
-          write (r2mnunit, '(2i6,f20.12)') nw1, nw2, r2ave_mn  
+          if(on_root) write (r2mnunit, '(2i6,f20.12)') nw1, nw2, r2ave_mn  
        enddo
     enddo
     close(r2mnunit)  
@@ -2054,6 +2071,7 @@ contains
     omt1 = omt1 / real(num_kpts,dp)  
     omt2 = omt2 / real(num_kpts,dp)  
     omt3 = omt3 / real(num_kpts,dp)  
+ if(on_root) then
     write ( stdout , * ) ' '  
     write(stdout,'(2x,a,f15.9,1x,a)') 'Omega Invariant:   1-s^2 = ',&
          omt1*lenconfac**2,'('//trim(length_unit)//'^2)'
@@ -2061,6 +2079,7 @@ contains
          omt2*lenconfac**2,'('//trim(length_unit)//'^2)'
     write(stdout,'(2x,a,f15.9,1x,a)') '                  acos^2 = ',&
          omt3*lenconfac**2,'('//trim(length_unit)//'^2)'
+  endif
 
     deallocate(cpad1,stat=ierr)
     if (ierr/=0) call io_error('Error in deallocating cpad1 in wann_svd_omega_i')

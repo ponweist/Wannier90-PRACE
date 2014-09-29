@@ -14,6 +14,7 @@
 module w90_utility
 
   use w90_constants, only : dp
+  use w90_comms,     only : on_root
 
   implicit none
 
@@ -603,12 +604,12 @@ contains
     call ZHPEVX('V','A','U',dim,mat_pack,0.0_dp,0.0_dp,0,0,-1.0_dp, &
          nfound,eig(1),rot,dim,cwork,rwork,iwork,ifail,info)
     if(info < 0) then
-       write(stdout,'(a,i3,a)') 'THE ',-info,&
+       if(on_root) write(stdout,'(a,i3,a)') 'THE ',-info,&
             ' ARGUMENT OF ZHPEVX HAD AN ILLEGAL VALUE'
        call io_error('Error in utility_diagonalize')
     endif
     if(info > 0) then
-       write(stdout,'(i3,a)') info,' EIGENVECTORS FAILED TO CONVERGE'
+       if(on_root) write(stdout,'(i3,a)') info,' EIGENVECTORS FAILED TO CONVERGE'
        call io_error('Error in utility_diagonalize')
     endif
 

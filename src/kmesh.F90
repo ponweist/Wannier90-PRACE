@@ -53,6 +53,7 @@ contains
     !===================================================================  
     use w90_io,      only : stdout,io_error,io_stopwatch
     use w90_utility, only : utility_compar
+    use w90_comms,   only : on_root, comms_bcast
 
     implicit none
 
@@ -78,11 +79,11 @@ contains
 
     if (timing_level>0) call io_stopwatch('kmesh: get',1)
 
-    write(stdout,'(/1x,a)') &
+    if(on_root) write(stdout,'(/1x,a)') &
       '*---------------------------------- K-MESH ----------------------------------*'  
 
     ! Sort the cell neighbours so we loop in order of distance from the home shell
-    call kmesh_supercell_sort
+    call kmesh_supercell_sort 
 
 
     ! find the distance between k-point 1 and its nearest-neighbour shells
@@ -118,6 +119,7 @@ contains
        dnn1 = eta  
     enddo
 
+  if(on_root) then
     write(stdout,'(1x,a)') '+----------------------------------------------------------------------------+' 
     write(stdout,'(1x,a)') '|                    Distance to Nearest-Neighbour Shells                    |'
     write(stdout,'(1x,a)') '|                    ------------------------------------                    |'
@@ -132,14 +134,17 @@ contains
        write(stdout,'(1x,a,11x,i3,17x,f10.6,19x,i4,12x,a)') '|',ndnn,dnn(ndnn)/lenconfac,multi(ndnn),'|' 
     enddo
     write(stdout,'(1x,a)') '+----------------------------------------------------------------------------+' 
+  endif !on_root
 
 
     if(iprint>=4) then
        ! Write out all the bvectors
+      if(on_root) then
        write(stdout,'(1x,"|",76(" "),"|")') 
        write(stdout,'(1x,a)') '|         Complete list of b-vectors and their lengths                       |' 
        write(stdout,'(1x,"|",76(" "),"|")') 
        write(stdout,'(1x,"+",76("-"),"+")') 
+      endif
 
        allocate( bvec_tmp(3,maxval(multi)),stat=ierr)
        if (ierr/=0) call io_error('Error allocating bvec_tmp in kmesh_get')
@@ -147,49 +152,56 @@ contains
        counter=0
        do shell=1,search_shells
           call kmesh_get_bvectors(multi(shell),1,dnn(shell),bvec_tmp(:,1:multi(shell)))
-          do loop=1,multi(shell)
-             counter=counter+1
-             write(stdout,'(a,I4,1x,a,2x,3f12.6,2x,a,2x,f12.6,a)') ' | b-vector  ',counter,': (', &
-                  bvec_tmp(:,loop)/lenconfac,')',dnn(shell)/lenconfac,'  |'
-          end do
+          if(on_root) then
+            do loop=1,multi(shell)
+               counter=counter+1
+               write(stdout,'(a,I4,1x,a,2x,3f12.6,2x,a,2x,f12.6,a)') ' | b-vector  ',counter,': (', &
+                    bvec_tmp(:,loop)/lenconfac,')',dnn(shell)/lenconfac,'  |'
+            end do
+          endif !on_root
        end do
        deallocate( bvec_tmp)
        if (ierr/=0) call io_error('Error deallocating bvec_tmp in kmesh_get')
-       write(stdout,'(1x,"|",76(" "),"|")') 
-       write(stdout,'(1x,"+",76("-"),"+")') 
+       if(on_root) then
+         write(stdout,'(1x,"|",76(" "),"|")') 
+         write(stdout,'(1x,"+",76("-"),"+")') 
+       endif !on_root
     end if
 
 
     ! Get the shell weights to satisfy the B1 condition
     if(index(devel_flag,'kmesh_degen')>0) then
-       call kmesh_shell_from_file(multi,dnn,bweight)
+       call kmesh_shell_from_file(multi,dnn,bweight)  
     else
        if(num_shells==0) then
-          call kmesh_shell_automatic(multi,dnn,bweight)
+          call kmesh_shell_automatic(multi,dnn,bweight)  
        elseif(num_shells>0) then
-          call kmesh_shell_fixed(multi,dnn,bweight)
+          call kmesh_shell_fixed(multi,dnn,bweight)  
        end if
 
-       write(stdout,'(1x,a)',advance='no') '| The following shells are used: '
-       do ndnn=1,num_shells
-          if (ndnn.eq.num_shells) then
-             write(stdout,'(i3,1x)',advance='no') shell_list(ndnn)
-          else
-             write(stdout,'(i3,",")',advance='no') shell_list(ndnn)
-          endif
-       enddo
-       do l=1,11-num_shells
-          write(stdout,'(4x)',advance='no')
-       enddo
-       write(stdout,'("|")')
+       if(on_root) then
+         write(stdout,'(1x,a)',advance='no') '| The following shells are used: '
+         do ndnn=1,num_shells
+            if (ndnn.eq.num_shells) then
+               write(stdout,'(i3,1x)',advance='no') shell_list(ndnn)
+            else
+               write(stdout,'(i3,",")',advance='no') shell_list(ndnn)
+            endif
+         enddo
+         do l=1,11-num_shells
+            write(stdout,'(4x)',advance='no')
+         enddo
+         write(stdout,'("|")')
+       endif !on_root
 
-    end if
+    end if !index
        
     nntot=0
     do loop_s=1,num_shells
        nntot=nntot+multi(shell_list(loop_s))
     end do
 
+  if(on_root) them
     if(nntot>num_nnmax) then
     write(stdout,'(a,i2,a)') ' **WARNING: kmesh has found >',num_nnmax,' nearest neighbours**'
     write(stdout,'(a)') ' '
@@ -211,6 +223,7 @@ contains
     write(stdout,'(a)') ' The elements are the bvectors labelled according to the following '
     write(stdout,'(a)') ' list (last column is distance)'
     write(stdout,'(a)') ' '
+  endif
     
     allocate( bvec_tmp(3,maxval(multi)),stat=ierr)
     if (ierr/=0) call io_error('Error allocating bvec_tmp in kmesh_get')
@@ -218,13 +231,15 @@ contains
     counter=0
     do shell=1,search_shells
        call kmesh_get_bvectors(multi(shell),1,dnn(shell),bvec_tmp(:,1:multi(shell)))
-       do loop=1,multi(shell)
-          counter=counter+1
-          write(stdout,'(a,I4,1x,a,2x,3f12.6,2x,a,2x,f12.6,a)') ' | b-vector  ',counter,': (', &
-               bvec_tmp(:,loop)/lenconfac,')',dnn(shell)/lenconfac,'  |'
-       end do
+       if(on_root) then
+         do loop=1,multi(shell)
+            counter=counter+1
+            write(stdout,'(a,I4,1x,a,2x,3f12.6,2x,a,2x,f12.6,a)') ' | b-vector  ',counter,': (', &
+                 bvec_tmp(:,loop)/lenconfac,')',dnn(shell)/lenconfac,'  |'
+         end do
+       endif !on_root
     end do
-    write(stdout,'(a)') ' '
+    if(on_root) write(stdout,'(a)') ' '
     deallocate( bvec_tmp)
     if (ierr/=0) call io_error('Error deallocating bvec_tmp in kmesh_get')
 
@@ -262,9 +277,12 @@ contains
     ! Comment: Now we have bk(3,nntot,num_kps) 09/04/2006
 
 
+  if(on_root) then
     write(stdout,'(1x,a)') '+----------------------------------------------------------------------------+' 
     write(stdout,'(1x,a)') '|                        Shell   # Nearest-Neighbours                        |'
     write(stdout,'(1x,a)') '|                        -----   --------------------                        |'
+  endif !on_root
+
     if(index(devel_flag,'kmesh_degen')==0) then
        !
        ! Standard routine
@@ -338,13 +356,13 @@ nnshell=0
  end if 
 
 
-
+  if(on_root) then
     do ndnnx=1, num_shells
        ndnn = shell_list(ndnnx)
        write(stdout,'(1x,a,24x,i3,13x,i3,33x,a)') '|',ndnn,nnshell(1,ndnn),'|'
     end do
     write(stdout,'(1x,"+",76("-"),"+")') 
-
+  endif
 
     do nkp = 1, num_kpts  
        nnx = 0  
@@ -359,7 +377,7 @@ nnshell=0
                 bbn = bbn + bk_local(i,nnx,nkp) * bk_local(i,nnx,nkp)  
              enddo
              if (abs(sqrt(bb1)-sqrt(bbn)).gt.kmesh_tol) then  
-                write(stdout,'(1x,2f10.6)') bb1,bbn
+                if(on_root) write(stdout,'(1x,2f10.6)') bb1,bbn
                 call io_error('Non-symmetric k-point neighbours!')
              endif
           enddo
@@ -384,19 +402,21 @@ nnshell=0
                 enddo
              enddo
              if ( (i.eq.j) .and. (abs(ddelta-1.0_dp).gt.kmesh_tol) ) then
-                write(stdout,'(1x,2i3,f12.8)') i,j,ddelta
+                if(on_root) write(stdout,'(1x,2i3,f12.8)') i,j,ddelta
                 call io_error('Eq. (B1) not satisfied in kmesh_get (1)')  
              endif
              if ( (i.ne.j) .and. (abs(ddelta).gt.kmesh_tol) ) then  
-                write(stdout,'(1x,2i3,f12.8)') i,j,ddelta
+                if(on_root) write(stdout,'(1x,2i3,f12.8)') i,j,ddelta
                 call io_error('Eq. (B1) not satisfied in kmesh_get (2)')  
              endif
           enddo
        enddo
     enddo
 
+  if(on_root) then
     write(stdout,'(1x,a)') '| Completeness relation is fully satisfied [Eq. (B1), PRB 56, 12847 (1997)]  |'  
     write(stdout,'(1x,"+",76("-"),"+")') 
+  endif
 
     !
     wbtot = 0.0_dp  
@@ -432,7 +452,7 @@ nnshell=0
     enddo
     if (na.ne.nnh) call io_error('Did not find right number of bk directions')
 
-
+ if(on_root) then
     if (lenconfac.eq.1.0_dp) then
        write(stdout,'(1x,a)') '|                  b_k Vectors (Ang^-1) and Weights (Ang^2)                  |'
        write(stdout,'(1x,a)') '|                  ----------------------------------------                  |'
@@ -461,6 +481,7 @@ nnshell=0
     enddo
     write(stdout,'(1x,"+",76("-"),"+")') 
     write(stdout,*) ' '  
+ endif
 
 
     ! find index array
@@ -475,7 +496,7 @@ nnshell=0
           enddo
           ! check found
           if (neigh(nkp,na).eq.0) then  
-             write(stdout,*) ' nkp,na=',nkp,na  
+             if(on_root) write(stdout,*) ' nkp,na=',nkp,na  
              call io_error('kmesh_get: failed to find neighbours for this kpoint')  
           endif
        enddo
@@ -558,6 +579,7 @@ nnshell=0
 
        if (na.ne.nnh) call io_error('Did not find right number of b-vectors in gamma_only option')
 
+     if(on_root) then
        write(stdout,'(1x,"+",76("-"),"+")')
        write(stdout,'(1x,a)') '|        Gamma-point: number of the b-vectors is reduced by half             |'
        write(stdout,'(1x,"+",76("-"),"+")')
@@ -576,6 +598,7 @@ nnshell=0
        enddo
        write(stdout,'(1x,"+",76("-"),"+")')
        write(stdout,*) ' '
+     endif !on_root
 
        deallocate(nnlist_tmp, stat=ierr )
        if (ierr/=0) call io_error('Error in deallocating nnlist_tmp in kmesh_get')
@@ -888,7 +911,9 @@ nnshell=0
     !==========================================================================!  
 
     use w90_constants, only : eps5,eps6
-    use w90_io,   only : io_error,stdout,io_stopwatch
+    use w90_io,    only : io_error,stdout,io_stopwatch
+    use w90_comms, only : on_root    
+
     implicit none
 
     integer, intent(in) :: multi(search_shells)   ! the number of kpoints in the shell
@@ -913,7 +938,8 @@ nnshell=0
        if (ierr/=0) call io_error('Error allocating bvector in kmesh_shell_automatic')
     bvector=0.0_dp;bweight=0.0_dp
 
-    write(stdout,'(1x,a)') '| The b-vectors are chosen automatically                                     |'
+    if(on_root) &
+     write(stdout,'(1x,a)') '| The b-vectors are chosen automatically                                     |'
 
     b1sat=.false.
     do shell=1,search_shells
@@ -922,7 +948,7 @@ nnshell=0
        ! get the b vectors for the new shell
        call kmesh_get_bvectors(multi(shell),1,dnn(shell),bvector(:,1:multi(shell),cur_shell))
 
-       if(iprint>=3) then
+       if(iprint>=3 .and. on_root) then
           write(stdout,'(1x,a8,1x,I2,a14,1x,I2,49x,a)') '| Shell:',shell,' Multiplicity:',multi(shell), '|'
              do loop=1,multi(shell)
                 write(stdout,'(1x,a10,I2,1x,a1,4x,3f12.6,5x,a9,9x,a)') '| b-vector ',loop,':', &
@@ -946,7 +972,7 @@ nnshell=0
        end if
 
        if(lpar) then
-          if(iprint>=3) then
+          if(iprint>=3 .and. on_root) then
              write(stdout,'(1x,a)') '| This shell is linearly dependent on existing shells: Trying next shell     |'
           end if
           cycle
@@ -982,17 +1008,19 @@ nnshell=0
        info=0
        call dgesvd('A','A',max_shells,num_shells,amat,max_shells,singv,umat,max_shells,vmat,num_shells,work,lwork,info)
        if(info<0) then
-          write(stdout,'(1x,a,1x,I1,1x,a)') 'kmesh_shell_automatic: Argument',abs(info),'of dgesvd is incorrect'
-          call io_error('kmesh_shell_automatic: Problem with Singular Value Decomposition')
+         if(on_root) &
+         write(stdout,'(1x,a,1x,I1,1x,a)') 'kmesh_shell_automatic: Argument',abs(info),'of dgesvd is incorrect'
+         call io_error('kmesh_shell_automatic: Problem with Singular Value Decomposition')
        else if (info>0) then
-          call io_error('kmesh_shell_automatic: Singular Value Decomposition did not converge')
+         call io_error('kmesh_shell_automatic: Singular Value Decomposition did not converge')
        end if
 
        if(any(abs(singv)<eps5)) then
          if(num_shells==1)  then 
              call io_error('kmesh_shell_automatic: Singular Value Decomposition has found a very small singular value')
          else
-            write(stdout,'(1x,a)') '| SVD found small singular value, Rejecting this shell and trying the next   |'
+            if(on_root) write(stdout,'(1x,a)') &
+                   '| SVD found small singular value, Rejecting this shell and trying the next   |'
             b1sat=.false.
             num_shells=num_shells-1
             goto 200
@@ -1006,7 +1034,7 @@ nnshell=0
        end do
 
        bweight(1:num_shells)=matmul(transpose(vmat),matmul(smat,matmul(transpose(umat),target)))
-       if(iprint>=2) then
+       if(iprint>=2 .and. on_root) then
           do loop_s=1,num_shells
              write(stdout,'(1x,a,I2,a,f12.7,5x,a8,36x,a)') '| Shell: ',loop_s,&
                   ' w_b ', bweight(loop_s)*lenconfac**2,'('//trim(length_unit)//'^2)','|'
@@ -1032,7 +1060,7 @@ nnshell=0
           end do
        end do
 
-       if(.not.b1sat) then
+       if(.not.b1sat .and. on_root) then
           if(shell<search_shells .and. iprint>=3) then
              write(stdout,'(1x,a,24x,a1)') '| B1 condition is not satisfied: Adding another shell','|'
           elseif(shell==search_shells) then
@@ -1062,7 +1090,7 @@ nnshell=0
 
     end do
 
-    if(.not. b1sat)  then
+    if(.not. b1sat .and. on_root)  then
        write(stdout,*) ' '
        write(stdout,'(1x,a,i3,a)') 'Unable to satisfy B1 with any of the first ',search_shells,' shells'
        write(stdout,'(1x,a)') 'Your cell might be very long, or you may have an irregular MP grid'
@@ -1088,7 +1116,9 @@ nnshell=0
     !==========================================================================!
 
     use w90_constants, only : eps7
-    use w90_io,   only : io_error,stdout,io_stopwatch
+    use w90_io,    only : io_error,stdout,io_stopwatch
+    use w90_comms, only : on_root
+
     implicit none
 
     integer, intent(in) :: multi(search_shells)   ! the number of kpoints in the shell
@@ -1117,7 +1147,7 @@ nnshell=0
     bvector=0.0_dp;bweight=0.0_dp
     amat=0.0_dp;umat=0.0_dp;vmat=0.0_dp;smat=0.0_dp;singv=0.0_dp
 
-    write(stdout,'(1x,a)') '| The b-vectors are set in the win file                                      |'
+    if(on_root) write(stdout,'(1x,a)') '| The b-vectors are set in the win file                                      |'
 
 
     do shell=1,num_shells
@@ -1126,7 +1156,7 @@ nnshell=0
             bvector(:,1:multi(shell_list(shell)),shell))
     end do
 
-    if(iprint>=3) then
+    if(iprint>=3 .and. on_root) then
        do shell=1,num_shells
           write(stdout,'(1x,a8,1x,I2,a14,1x,I2,49x,a)') '| Shell:',shell,' Multiplicity:',multi(shell_list(shell)), '|'
           do loop=1,multi(shell_list(shell))
@@ -1151,7 +1181,8 @@ nnshell=0
     info=0
     call dgesvd('A','A',max_shells,num_shells,amat,max_shells,singv,umat,max_shells,vmat,num_shells,work,lwork,info)
     if(info<0) then
-       write(stdout,'(1x,a,1x,I1,1x,a)') 'kmesh_shell_fixed: Argument',abs(info),'of dgesvd is incorrect'
+       if(on_root) write(stdout,'(1x,a,1x,I1,1x,a)') &
+              'kmesh_shell_fixed: Argument',abs(info),'of dgesvd is incorrect'
        call io_error('kmesh_shell_fixed: Problem with Singular Value Decomposition')
     else if (info>0) then
        call io_error('kmesh_shell_fixed: Singular Value Decomposition did not converge')
@@ -1166,7 +1197,7 @@ nnshell=0
     end do
 
     bweight(1:num_shells)=matmul(transpose(vmat),matmul(smat,matmul(transpose(umat),target)))
-    if(iprint>=2) then
+    if(iprint>=2 .and. on_root) then
        do loop_s=1,num_shells
 !          write(stdout,'(1x,a,I2,a,f12.7,49x,a)') '| Shell: ',loop_s,' w_b ', bweight(loop_s),'|'
           write(stdout,'(1x,a,I2,a,f12.7,5x,a8,36x,a)') '| Shell: ',loop_s,&
@@ -1214,7 +1245,9 @@ nnshell=0
     !==========================================================================!
 
     use w90_constants, only : eps7
-    use w90_io,   only : io_error,stdout,io_stopwatch,io_file_unit,seedname,maxlen
+    use w90_io,        only : io_error,stdout,io_stopwatch,io_file_unit,seedname,maxlen
+    use w90_comms,     only : on_root, bcast
+
     implicit none
 
     integer, intent(inout) :: multi(search_shells)   ! the number of kpoints in the shell
@@ -1242,7 +1275,8 @@ nnshell=0
        if (ierr/=0) call io_error('Error allocating bvector in kmesh_shell_fixed') 
     bvector=0.0_dp;bweight=0.0_dp
 
-    write(stdout,'(1x,a)') '| The b-vectors are defined in the kshell file                               |'
+    if(on_root) &
+     write(stdout,'(1x,a)') '| The b-vectors are defined in the kshell file                               |'
 
     counter=1
     do shell=1,search_shells
@@ -1253,6 +1287,7 @@ nnshell=0
     end do
 
 
+if(on_root) then 
     kshell_in=io_file_unit()
     open(unit=kshell_in,file=trim(seedname)//'.kshell',&
          form='formatted',status='old',action='read',err=101)
@@ -1300,6 +1335,10 @@ nnshell=0
        multi(counter)=length
        read(dummy2,*,err=230,end=230) (bvec_list(i,loop),i=1,length)
    end do
+endif !on_root
+
+call bcast (bvec_list,tot_num_lines*length)
+  
 
    bvec_inp=0.0_dp
    do loop=1,num_shells
@@ -1309,8 +1348,7 @@ nnshell=0
    end do
 
 
-
-    if(iprint>=3) then
+    if(iprint>=3 .and. on_root) then
        do shell=1,num_shells
           write(stdout,'(1x,a8,1x,I2,a14,1x,I2,49x,a)') '| Shell:',shell,' Multiplicity:',multi(shell), '|'
           do loop=1,multi(shell)
@@ -1348,7 +1386,8 @@ nnshell=0
     info=0
     call dgesvd('A','A',max_shells,num_shells,amat,max_shells,singv,umat,max_shells,vmat,num_shells,work,lwork,info)
     if(info<0) then
-       write(stdout,'(1x,a,1x,I1,1x,a)') 'kmesh_shell_fixed: Argument',abs(info),'of dgesvd is incorrect'
+       if(on_root) &
+         write(stdout,'(1x,a,1x,I1,1x,a)') 'kmesh_shell_fixed: Argument',abs(info),'of dgesvd is incorrect'
        call io_error('kmesh_shell_fixed: Problem with Singular Value Decomposition')
     else if (info>0) then
        call io_error('kmesh_shell_fixed: Singular Value Decomposition did not converge')
@@ -1363,7 +1402,7 @@ nnshell=0
     end do
 
     bweight(1:num_shells)=matmul(transpose(vmat),matmul(smat,matmul(transpose(umat),target)))
-    if(iprint>=2) then
+    if(iprint>=2 .and. on_root) then
        do loop_s=1,num_shells
           write(stdout,'(1x,a,I2,a,f12.7,5x,a8,36x,a)') '| Shell: ',loop_s,&
                ' w_b ', bweight(loop_s)*lenconfac**2,'('//trim(length_unit)//'^2)','|'

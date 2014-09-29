@@ -13,9 +13,10 @@
 
 module w90_overlap
  
-  use w90_constants, only : dp,cmplx_0,cmplx_1
+  use w90_constants,  only : dp,cmplx_0,cmplx_1
   use w90_parameters, only : disentanglement
-  use w90_io, only : stdout
+  use w90_io,    only : stdout
+  use w90_comms, only : on_root
 
   implicit none
  
@@ -83,36 +84,40 @@ contains
        ! This block left for the short term as a means
        ! to quickly benchmark against the old f77 code
        ! Read U_matrix and M_matrix from file 
-       open(20,file='wannier0.dat',form='formatted',status='unknown')
-       do i=1,num_wann
-          do j=1,num_wann
-             do nkp=1,num_kpts
-                read(20,*) u_matrix(i,j,nkp)
-                do nn=1,nntot
-                   read(20,*) m_matrix(i,j,nn,nkp)
+       if(on_root) then
+          open(20,file='wannier0.dat',form='formatted',status='unknown')
+          do i=1,num_wann
+             do j=1,num_wann
+                do nkp=1,num_kpts
+                   read(20,*) u_matrix(i,j,nkp)
+                   do nn=1,nntot
+                      read(20,*) m_matrix(i,j,nn,nkp)
+                   end do
                 end do
              end do
           end do
-       end do
-       close(20)
+          close(20)
+       endif !on_root 
 
     else
 
        ! Read M_matrix_orig from file
-       mmn_in=io_file_unit()
-       open(unit=mmn_in,file=trim(seedname)//'.mmn',&
+       if(on_root) then
+          mmn_in=io_file_unit()
+          open(unit=mmn_in,file=trim(seedname)//'.mmn',&
             form='formatted',status='old',action='read',err=101)
               
-       write(stdout,'(/a)',advance='no') ' Reading overlaps from '//trim(seedname)//'.mmn    : '
+          write(stdout,'(/a)',advance='no') ' Reading overlaps from '//trim(seedname)//'.mmn    : '
 
-       ! Read the comment line
-       read(mmn_in,'(a)',err=103,end=103) dummy
-       write(stdout,'(a)') trim(dummy)
+          ! Read the comment line
+          read(mmn_in,'(a)',err=103,end=103) dummy
+          write(stdout,'(a)') trim(dummy)
 
-       ! Read the number of bands, k-points and nearest neighbours
-       read(mmn_in,*,err=103,end=103) nb_tmp,nkp_tmp,nntot_tmp
+          ! Read the number of bands, k-points and nearest neighbours
+          read(mmn_in,*,err=103,end=103) nb_tmp,nkp_tmp,nntot_tmp
+       endif !on_root
 
-       ! Checks
+          ! Checks
        if (nb_tmp.ne.num_bands) &
             call io_error(trim(seedname)//'.mmn has not the right number of bands')
        if (nkp_tmp.ne.num_kpts) &
@@ -124,11 +129,14 @@ contains
        num_mmn=num_kpts*nntot
        allocate(mmn_tmp(num_bands,num_bands),stat=ierr)
        if (ierr/=0) call io_error('Error in allocating mmn_tmp in overlap_read')
+
+     if(on_root) then
        do ncount = 1, num_mmn
-          read(mmn_in,*,err=103,end=103) nkp,nkp2,nnl,nnm,nnn
+          if(on_root) read(mmn_in,*,err=103,end=103) nkp,nkp2,nnl,nnm,nnn
           do n=1,num_bands
              do m=1,num_bands
                 read(mmn_in,*,err=103,end=103) m_real, m_imag
+!GOSIA bcast read data
                 mmn_tmp(m,n) = cmplx(m_real,m_imag,kind=dp)
              enddo
           enddo
@@ -149,7 +157,7 @@ contains
              endif
           end do
           if (nn.eq.0) then
-             write(stdout,'(/a,i8,2i5,i4,2x,3i3)') &
+             if(on_root) write(stdout,'(/a,i8,2i5,i4,2x,3i3)') &
                   ' Error reading '//trim(seedname)//'.mmn:',ncount,nkp,nkp2,nn,nnl,nnm,nnn
              call io_error('Neighbour not found')
           end if
@@ -160,26 +168,30 @@ contains
              m_matrix(:,:,nn,nkp) = mmn_tmp(:,:)
           end if
        end do
+    endif !on_root
+
        deallocate(mmn_tmp,stat=ierr)
        if (ierr/=0) call io_error('Error in deallocating mmn_tmp in overlap_read')
  
-       close(mmn_in)
+       if(on_root) close(mmn_in)
 
 
        if(.not. use_bloch_phases) then
 
           ! Read A_matrix from file wannier.amn
-          amn_in=io_file_unit()
-          open(unit=amn_in,file=trim(seedname)//'.amn',form='formatted',status='old',err=102)
+          if(on_root) then
+             amn_in=io_file_unit()
+             open(unit=amn_in,file=trim(seedname)//'.amn',form='formatted',status='old',err=102)
           
-          write(stdout,'(/a)',advance='no') ' Reading projections from '//trim(seedname)//'.amn : '
+             write(stdout,'(/a)',advance='no') ' Reading projections from '//trim(seedname)//'.amn : '
           
-          ! Read the comment line
-          read(amn_in,'(a)',err=104,end=104) dummy
-          write(stdout,'(a)') trim(dummy)
+             ! Read the comment line
+             read(amn_in,'(a)',err=104,end=104) dummy
+             write(stdout,'(a)') trim(dummy)
           
-          ! Read the number of bands, k-points and wannier functions
-          read(amn_in,*,err=104,end=104) nb_tmp, nkp_tmp, nw_tmp
+             ! Read the number of bands, k-points and wannier functions
+             read(amn_in,*,err=104,end=104) nb_tmp, nkp_tmp, nw_tmp
+          endif  !on_root
           
           ! Checks
           if (nb_tmp.ne.num_bands) &
@@ -191,6 +203,8 @@ contains
           
           ! Read the projections
           num_amn = num_bands*num_wann*num_kpts
+
+       if(on_root) then
           if (disentanglement) then
              do ncount = 1, num_amn
                 read(amn_in,*,err=104,end=104) m,n,nkp,a_real,a_imag
@@ -202,8 +216,8 @@ contains
                 u_matrix(m,n,nkp) = cmplx(a_real,a_imag,kind=dp)
              end do
           end if
-          
           close(amn_in)
+       endif !on_root
           
        else
           
@@ -424,6 +438,7 @@ return
 
     use w90_parameters, only : num_bands,a_matrix,m_matrix_orig,nntot,timing_level
     use w90_io,         only : io_file_unit,io_error,io_stopwatch
+    use w90_comms, only      : on_root
 
     implicit none
 
@@ -434,6 +449,7 @@ return
 
     if (timing_level>1) call io_stopwatch('overlap: rotate',1)
 
+  if(on_root) then
     lam_unit=io_file_unit()
     open(unit=lam_unit,file='lambda.dat',&
          form='unformatted',status='old',action='read')
@@ -441,6 +457,7 @@ return
     read(lam_unit) lambda
 !!$    write(stdout,*) ' done'
     close(lam_unit)
+  endif
 
     do j=1,num_bands
        do i=1,j
@@ -549,6 +566,7 @@ return
     use w90_parameters, only : num_bands,num_wann,num_kpts,timing_level,&
                            u_matrix,m_matrix,nntot,nnlist
     use w90_utility,    only : utility_zgemm
+    use w90_comms,      only : on_root
 
     implicit none
 
@@ -585,10 +603,12 @@ return
             num_bands, svals, cz, num_bands, cvdag, num_bands, cwork, &
             4*num_bands, rwork, info)
        if (info.ne.0) then  
+          if(on_root) then
           write(stdout,*) ' ERROR: IN ZGESVD IN overlap_project'  
           write(stdout,*) ' K-POINT NKP=', nkp, ' INFO=', info  
           if (info.lt.0) then  
              write(stdout,*) ' THE ',  -info, '-TH ARGUMENT HAD ILLEGAL VALUE'  
+          endif
           endif
           call io_error('Error in ZGESVD in overlap_project')
        endif
@@ -606,21 +626,25 @@ return
                 ctmp2 = ctmp2 + u_matrix(m,j,nkp) * conjg(u_matrix(m,i,nkp))  
              enddo
              if ( (i.eq.j).and.(abs(ctmp2-cmplx_1).gt.eps5) ) then
+                if(on_root) then
                 write(stdout,*) ' ERROR: unitarity of initial U'  
                 write(stdout,'(1x,a,i2)') 'nkp= ', nkp  
                 write(stdout,'(1x,a,i2,2x,a,i2)') 'i= ', i, 'j= ', j  
                 write(stdout,'(1x,a,f12.6,1x,f12.6)') &
                      '[u_matrix.transpose(u_matrix)]_ij= ',&
                      real(ctmp2,dp),aimag(ctmp2)
+                endif
                 call io_error('Error in unitarity of initial U in overlap_project')
              endif
              if ( (i.ne.j) .and. (abs(ctmp2).gt.eps5) ) then  
+                if(on_root) then
                 write(stdout,*) ' ERROR: unitarity of initial U'  
                 write(stdout,'(1x,a,i2)') 'nkp= ', nkp  
                 write(stdout,'(1x,a,i2,2x,a,i2)') 'i= ', i, 'j= ', j  
                 write(stdout,'(1x,a,f12.6,1x,f12.6)') &
                      '[u_matrix.transpose(u_matrix)]_ij= ', &
                      real(ctmp2,dp),aimag(ctmp2)
+                endif
                 call io_error('Error in unitarity of initial U in overlap_project')
              endif
           enddo
@@ -672,6 +696,7 @@ return
     use w90_parameters, only : num_wann,timing_level,&
                            u_matrix,m_matrix,nntot!,num_kpts,nnlist 
     use w90_utility,    only : utility_zgemm
+    use w90_comms,      only : on_root
 
     implicit none
 
@@ -774,9 +799,11 @@ return
     call DGESVD ('A', 'A', num_wann, num_wann, u_matrix_r, num_wann, &
            svals, rz, num_wann, rv, num_wann, work, 5*num_wann, info)
     if (info.ne.0) then
+       if(on_root) then
        write(stdout,*) ' ERROR: IN DGESVD IN overlap_project_gamma'
        if (info.lt.0) then
           write(stdout,*) 'THE ',  -info, '-TH ARGUMENT HAD ILLEGAL VALUE'
+       endif
        endif
        call io_error('overlap_project_gamma: problem in DGESVD 1')
     endif
@@ -793,19 +820,23 @@ return
              rtmp2 = rtmp2 + u_matrix_r(m,j) * u_matrix_r(m,i)  
           enddo
           if ( (i.eq.j).and.(abs(rtmp2-1.0_dp).gt.eps5) ) then
+             if(on_root) then
              write(stdout,*) ' ERROR: unitarity of initial U'  
              write(stdout,'(1x,a,i2,2x,a,i2)') 'i= ', i, 'j= ', j  
              write(stdout,'(1x,a,f12.6)') &
                   '[u_matrix.transpose(u_matrix)]_ij= ',&
                   rtmp2
+             endif
              call io_error('Error in unitarity of initial U in overlap_project_gamma')
           endif
           if ( (i.ne.j) .and. (abs(rtmp2).gt.eps5) ) then  
+             if(on_root) then
              write(stdout,*) ' ERROR: unitarity of initial U'  
              write(stdout,'(1x,a,i2,2x,a,i2)') 'i= ', i, 'j= ', j  
              write(stdout,'(1x,a,f12.6,1x,f12.6)') &
                   '[u_matrix.transpose(u_matrix)]_ij= ', &
                   rtmp2
+             endif
              call io_error('Error in unitarity of initial U in overlap_project_gamma')
           endif
        enddo

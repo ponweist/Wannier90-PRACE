@@ -14,6 +14,7 @@
 module w90_hamiltonian
 
   use w90_constants, only : dp
+  use w90_comms,     only : on_root
 
   implicit none
 
@@ -373,6 +374,7 @@ contains
       ! NEVER overwrite wannier_centres
       !wannier_centres = r_home
 
+    if(on_root) then
       write(stdout,'(1x,a)') 'Translated centres'
       write(stdout,'(4x,a,3f10.6)') 'translation centre in fractional coordinate:',translation_centre_frac(:)
       do iw=1,num_wann
@@ -380,6 +382,7 @@ contains
       end do
       write(stdout,'(1x,a78)') repeat('-',78)
       write(stdout,*)
+    endif
 
       wannier_centres_translated = r_home
 
@@ -424,6 +427,7 @@ contains
     call io_date(cdate,ctime)
     header='written on '//cdate//' at '//ctime
 
+  if(on_root) then
     write(file_unit,*) header ! Date and time
     write(file_unit,*) num_wann
     write(file_unit,*) nrpts
@@ -436,6 +440,7 @@ contains
           end do
        end do
     end do
+  endif
 
     close(file_unit)
 
@@ -544,7 +549,7 @@ contains
     if(count_pts) return
 
 
-    if(iprint>=3) then
+    if(iprint>=3 .and. on_root) then
        write(stdout,'(1x,i4,a,/)') nrpts,  ' lattice points in Wigner-Seitz supercell:'
        do i=1,nrpts
           write(stdout,'(4x,a,3(i3,1x),a,i2)') '  vector ', irvec(1,i),irvec(2,i),&

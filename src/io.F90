@@ -58,6 +58,8 @@ contains
   ! Stopwatch to time parts of the code                              !
   !==================================================================!
 
+    use w90_comms,   only : on_root
+
     implicit none
 
     character(len=*), intent(in) :: tag
@@ -97,11 +99,11 @@ contains
              endif
           end do
 
-          write(stdout,'(1x,3a)') 'WARNING: name = ',trim(tag),' not found in io_stopwatch' 
+          if(on_root) write(stdout,'(1x,3a)') 'WARNING: name = ',trim(tag),' not found in io_stopwatch' 
 
        case default
 
-          write(stdout,*) ' Name = ',trim(tag),' mode = ',mode
+          if(on_root) write(stdout,*) ' Name = ',trim(tag),' mode = ',mode
           call io_error('Value of mode not recognised in io_stopwatch')
 
     end select
