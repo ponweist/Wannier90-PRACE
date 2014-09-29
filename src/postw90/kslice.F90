@@ -176,7 +176,6 @@ module w90_kslice
              my_spnmask = .false.
           else
              allocate(my_bandsdata(1,num_wann,my_nkpts))
-             my_bandsdata = 999.0_dp
           end if
        end if
 
@@ -290,7 +289,6 @@ module w90_kslice
     if(allocated(my_bandsdata)) then
        if(on_root) then
           allocate(bandsdata(1,num_wann,nkpts))
-          bandsdata = 666.0_dp
        else
           allocate(bandsdata(1,1,1))
        end if
