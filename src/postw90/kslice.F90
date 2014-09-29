@@ -26,10 +26,6 @@ module w90_kslice
   !
   !    kslice_corner(1:3) is the lower left corner 
   !    kslice_b1(1:3) and kslice_b2(1:3) are the vectors subtending the slice
-  !
-  !---------------------------------
-  ! TO DO: Parallelize over k-points
-  !---------------------------------
 
   implicit none
 
@@ -92,10 +88,6 @@ module w90_kslice
                                      zdata(:,:),       my_zdata(:,:)
     logical, allocatable          :: spnmask(:,:),     my_spnmask(:,:)
 
-    ! Everything is done on the root node.  However, we still have to
-    ! read and distribute the data if we are in parallel, so calls to
-    ! get_oper are done on all nodes
-   
     plot_fermi_lines  = index(kslice_task,'fermi_lines') > 0
     plot_curv         = index(kslice_task,'curv') > 0
     plot_morb         = index(kslice_task,'morb') > 0
