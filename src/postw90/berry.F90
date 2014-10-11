@@ -87,11 +87,6 @@ module w90_berry
                                    berry_task,berry_curv_unit,spin_decomp,&
                                    kubo_nfreq,kubo_freq_list,nfermi,&
                                    fermi_energy_list
-    use w90_get_oper, only       : get_ahc_R, get_morb_R, get_SS_R
-
-!Gosia replaced by get_ahc_R get_morb_R get_kubo_R
-!    use w90_get_oper, only       : get_HH_R,get_AA_R,get_BB_R,get_CC_R,&
-!                                   get_SS_R
 
     real(kind=dp), allocatable    :: adkpt(:,:)
 
@@ -158,15 +153,7 @@ module w90_berry
     ! Wannier matrix elements, allocations and initializations
     !
 
-    if(eval_kubo .and. spin_decomp)  call get_SS_R
-        !!due to v_matrix dealloc this order of calls  get_SS_R
-
     if(eval_morb) then
-       call get_morb_R
-!       call get_HH_R
-!       call get_AA_R
-!       call get_BB_R
-!       call get_CC_R
        imf_list=0.0_dp
        img_list=0.0_dp
        imh_list=0.0_dp
@@ -174,9 +161,6 @@ module w90_berry
 
 !this order due to the fact that ahc is in morb
     if(eval_ahc) then
-        call get_ahc_R
-!       call get_HH_R
-!       call get_AA_R
        imf_list=0.0_dp
        adpt_counter_list=0
     endif
@@ -190,9 +174,6 @@ module w90_berry
 
 
     if(eval_kubo) then
-       call get_ahc_R  
-!       call get_HH_R
-!       call get_AA_R
        allocate(kubo_H_k(3,3,kubo_nfreq))
        allocate(kubo_H(3,3,kubo_nfreq)) 
        allocate(kubo_AH_k(3,3,kubo_nfreq))
@@ -203,7 +184,6 @@ module w90_berry
        kubo_AH=cmplx_0
        jdos=0.0_dp
        if(spin_decomp) then
-          !get_SS_R was earlier
           allocate(kubo_H_k_spn(3,3,3,kubo_nfreq))
           allocate(kubo_H_spn(3,3,3,kubo_nfreq)) 
           allocate(kubo_AH_k_spn(3,3,3,kubo_nfreq))

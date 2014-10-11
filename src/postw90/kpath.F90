@@ -45,11 +45,7 @@ contains
                                    bands_num_spec_points,bands_label,&
                                    kpath_bands_colour,nfermi,fermi_energy_list,&
                                    berry_curv_unit,spin_decomp,berry_task
-!!!! Gosia here think!
-    use w90_get_oper, only       : get_ahc_R, get_morb_R, get_SS_R, HH_R, get_HH_R
-!    use w90_get_oper, only       : get_HH_R,HH_R,get_AA_R,get_BB_R,get_CC_R,&
-!                                   get_FF_R,get_SS_R
-
+    use w90_get_oper, only       : HH_R   
     use w90_spin, only           : get_spin_nk
     use w90_berry, only          : get_imfgh_k_list
     use w90_constants, only      : bohr
@@ -84,24 +80,6 @@ contains
     plot_curv  = index(kpath_task,'curv') > 0
     plot_morb  = index(kpath_task,'morb') > 0
     call k_path_print_info(plot_bands, plot_curv, plot_morb)
-
-    ! Set up the needed Wannier matrix elements
-!!!Gosia I insist that get_SS_R is before get_ahc_R and get_morb_R
-!        since it needs v_matrix which is deallocated in 
-!        get_ahc_R, morb routines
-    if (plot_bands .and. kpath_bands_colour=='spin' ) call get_SS_R
-    if (plot_bands) then 
-       if(index(berry_task,'morb')>0) then
-          call get_morb_R !HH_R is included
-       else if((index(berry_task,'ahc')>0).OR.(index(berry_task,'kubo')>0)) then
-          call get_ahc_R   !HH_R is included
-       else
-          call get_HH_R
-       end if
-    end if
-
-    if (plot_morb )   call get_morb_R 
-    if (plot_curv )   call get_ahc_R 
 
     if(on_root) then
        ! Determine the number of k-points (total_pts) as well as

@@ -40,16 +40,12 @@ module w90_spin
     use w90_postw90_common, only : num_int_kpts_on_node,int_kpts,weight
     use w90_parameters, only     : spin_kmesh,wanint_kpoint_file,&
                                    nfermi,fermi_energy_list
-    use w90_get_oper, only       : get_HH_R,get_SS_R
 
     integer       :: loop_x,loop_y,loop_z,loop_tot
     real(kind=dp) :: kweight,kpt(3),spn_k(3),spn_all(3),&
                      spn_mom(3),magnitude,theta,phi,conv
 
     if(nfermi>1) call io_error('Routine get_spin_moment requires nfermi=1')
-
-    call get_HH_R
-    call get_SS_R 
 
     if(on_root) then
        write(stdout,'(/,/,1x,a)') '------------'

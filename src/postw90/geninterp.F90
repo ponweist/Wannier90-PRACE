@@ -24,7 +24,7 @@ module w90_geninterp
   use w90_parameters, only    : geninterp_alsofirstder, num_wann, recip_lattice, real_lattice, &
        timing_level, geninterp_single_file
   use w90_io, only            : io_error,stdout,io_stopwatch,io_file_unit,seedname,io_stopwatch
-  use w90_get_oper, only      : get_HH_R, HH_R
+  use w90_get_oper, only      : HH_R
   use w90_comms
   use w90_utility, only       : utility_diagonalize
   use w90_postw90_common, only : fourier_R_to_k
@@ -131,9 +131,6 @@ contains
        if (ierr/=0) call io_error('Error in allocating delHH in calcTDF')
     end if
     
-    ! I call once the routine to calculate the Hamiltonian in real-space <0n|H|Rm>
-    call get_HH_R
-
     if (on_root) then
        allocate(kpointidx(num_kpts),stat=ierr)
        if (ierr/=0) call io_error('Error allocating kpointidx in geinterp_main.')

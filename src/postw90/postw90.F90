@@ -20,7 +20,8 @@ program postw90
   use w90_kmesh
   use w90_comms, only : on_root,num_nodes, comms_setup, comms_end, comms_bcast
   use w90_postw90_common
-
+  use w90_get_oper, only       : initialize
+  !
   ! These modules deal with the interpolation of specific physical properties
   !
   use w90_dos
@@ -166,6 +167,9 @@ program postw90
   endif
 
   ! Now perform one or more of the following tasks
+
+  
+  call initialize  
 
 
 ! find_fermi_level commented for the moment in dos.F90

@@ -52,7 +52,7 @@ contains
                                    dos_adpt_smr_max, spin_decomp,&
                                    dos_smr_fixed_en_width,&
                                    dos_project,num_dos_project
-    use w90_get_oper, only       : get_HH_R,get_SS_R,HH_R
+    use w90_get_oper, only       : HH_R
     use w90_wan_ham, only        : get_eig_deleig
     use w90_utility, only        : utility_diagonalize
 
@@ -93,10 +93,8 @@ contains
     allocate(UU(num_wann,num_wann),stat=ierr)
     if (ierr/=0) call io_error('Error in allocating UU in dos')    
 
-    call get_HH_R
     if(spin_decomp) then
        ndim=3
-       call get_SS_R 
     else
        ndim=1
     end if
