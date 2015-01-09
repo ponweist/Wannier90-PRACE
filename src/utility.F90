@@ -29,6 +29,7 @@ module w90_utility
   public :: utility_string_to_coord
   public :: utility_lowercase
   public :: utility_strip
+  public :: utility_zgemm_old
   public :: utility_zgemm
   public :: utility_zgemmm
   public :: utility_translate_home
@@ -45,12 +46,11 @@ module w90_utility
   public :: wgauss
   public :: utility_diagonalize
 
-
 contains
 
-
   !=============================================================!
-  subroutine utility_zgemm(c,a,transa,b,transb,n)
+  subroutine utility_zgemm_old(c,a,transa,b,transb,n)
+    !TODO: Remove and consistently use utilty_zgemm
     !=============================================================!
     !                                                             !
     ! Return matrix product of complex n x n matrices a and b:    !
@@ -80,6 +80,51 @@ contains
 
     return
 
+  end subroutine utility_zgemm_old
+  
+  !=============================================================!
+  subroutine utility_zgemm(a,transa,b,transb,c)
+    !=============================================================!
+    !                                                             !
+    ! Return matrix product of complex matrices a and b:          !
+    !                                                             !
+    !                       C = Op(A) Op(B)                       !
+    !                                                             !
+    ! transa = 'N'  ==> Op(A) = A                                 !
+    ! transa = 'T'  ==> Op(A) = transpose(A)                      !
+    ! transa = 'C'  ==> Op(A) = congj(transpose(A))               !
+    !                                                             !
+    ! similarly for B                                             !
+    !                                                             !
+    !=============================================================!
+
+    use w90_constants, only: cmplx_0,cmplx_1
+
+    implicit none
+
+    character(len=1),  intent(in)  :: transa
+    character(len=1),  intent(in)  :: transb
+    complex(kind=dp),  intent(in)  :: a(:,:)
+    complex(kind=dp),  intent(in)  :: b(:,:)
+    complex(kind=dp),  intent(out) :: c(:,:)
+    integer                        :: m,n,k
+
+    ! m ... number of rows in Op(A) and C
+    ! n ... number of columns in Op(B) and C
+    ! k ... number of columns in Op(A) resp. rows in Op(B)
+    m = size(c,1)
+    n = size(c,2)
+
+    if(transa /= 'N') then
+      k = size(a,1)
+    else
+      k = size(a,2)
+    end if
+
+    call zgemm(transa,transb,m,n,k,cmplx_1,a,size(a,1),b,size(b,1),cmplx_0,c,m)
+
+    return
+
   end subroutine utility_zgemm
 
   !=============================================================!
@@ -95,7 +140,6 @@ contains
   ! --> prod2 = op(a).diag(eigval).op(b).op(c)                    !
   ! is returned.                                                  !
   !===============================================================!
-     use blas95, only : gemm
 
      complex(kind=dp), dimension(:,:), intent(in)  :: a, b, c
      character(len=1), intent(in)                  :: transa, transb, transc
@@ -124,11 +168,11 @@ contains
 
      ! tmp = op(b).op(c)
      allocate(tmp(nb,mc))
-     call gemm(b, c, tmp, transb, transc)
+     call utility_zgemm(b, transb, c, transc, tmp)
 
      ! prod1 = op(a).tmp
      if(present(prod1)) then
-       call gemm(a, tmp, prod1, transa, 'N')
+       call utility_zgemm(a, transa, tmp, 'N', prod1)
      end if
 
      if(present(prod2) .and. present(eigval)) then
@@ -137,7 +181,7 @@ contains
          tmp(i,j) = eigval(i) * tmp(i,j)
        end forall
        ! prod2 = op(a).tmp
-       call gemm(a, tmp, prod2, transa, 'N')
+       call utility_zgemm(a, transa, tmp, 'N', prod2)
      end if
   end subroutine
 
@@ -649,7 +693,6 @@ contains
     !==============================================================!
 
     use w90_constants, only : dp
-    use blas95, only : gemm
 
     integer, intent(in)             :: N
     logical, optional, intent(in)   :: reverse
@@ -666,11 +709,11 @@ contains
      
 
     if(rev) then
-       call gemm(rot, mat, tmp, 'N','C')
-       call gemm(rot, tmp, mat, 'N','C')
+       call utility_zgemm(rot, 'N', mat, 'C', tmp)
+       call utility_zgemm(rot, 'N', mat, 'C', tmp)
     else 
-       call gemm(mat, rot, tmp, 'C','N')
-       call gemm(tmp, rot, mat, 'C','N')
+       call utility_zgemm(mat, 'C', rot, 'N', tmp)
+       call utility_zgemm(tmp, 'C', rot, 'N', mat)
     end if
 
   end subroutine utility_rotate
@@ -713,7 +756,6 @@ contains
     !                                                           !
     !===========================================================!
 
-    use blas95, only : gemm
     use w90_constants, only : dp
 
     integer          :: dim
@@ -722,7 +764,7 @@ contains
     complex(kind=dp) :: rot(dim,dim)
     complex(kind=dp) :: tmp(dim,dim)
 
-    call gemm(rot, mat, tmp, 'C', 'N')
+    call utility_zgemm(rot, 'C', mat, 'N', tmp)
     utility_rotate_diag=utility_matmul_diag(tmp,rot,dim)
 
   end function utility_rotate_diag

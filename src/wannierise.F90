@@ -857,14 +857,14 @@ contains
                tmp_cdq(:,i) = cz(:,i) * exp(cwschur1(i))
             enddo
             ! cmtmp   = tmp_cdq . cz^{dagger}
-            call utility_zgemm(cmtmp,tmp_cdq,'N',cz,'C',num_wann)
+            call utility_zgemm(tmp_cdq,'N',cz,'C',cmtmp)
             cdq(:,:,nkp)=cmtmp(:,:)
          else
             do i=1,num_wann
                cmtmp(:,i) = tmp_cdq(:,i) * exp(-cmplx_i * evals(i))
             enddo
             ! cdq(nkp)   = cmtmp . tmp_cdq^{dagger}
-            call utility_zgemm(cdq(:,:,nkp),cmtmp,'N',tmp_cdq,'C',num_wann)
+            call utility_zgemm(cmtmp,'N',tmp_cdq,'C',cdq(:,:,nkp))
          endif
       enddo
 
@@ -881,14 +881,14 @@ contains
 !!$            tmp_cdq(:,i) = cz(:,i) * exp(cwschur1(i))
 !!$         enddo
 !!$         ! cmtmp   = tmp_cdq . cz^{dagger}
-!!$         call utility_zgemm(cmtmp,tmp_cdq,'N',cz,'C',num_wann)
+!!$         call utility_zgemm(tmp_cdq,'N',cz,'C',cmtmp)
 !!$         cdq(:,:,nkp)=cmtmp(:,:)
 !!$      enddo
 
       ! the orbitals are rotated
       do nkp=1,num_kpts
          ! cmtmp = U(k) . cdq(k)
-         call utility_zgemm(cmtmp,u_matrix(:,:,nkp),'N',cdq(:,:,nkp),'N',num_wann)
+         call utility_zgemm(u_matrix(:,:,nkp),'N',cdq(:,:,nkp),'N',cmtmp)
          u_matrix(:,:,nkp)=cmtmp(:,:)
       enddo
 
@@ -897,9 +897,9 @@ contains
          do nn = 1, nntot  
             nkp2 = nnlist (nkp, nn)  
             ! tmp_cdq = cdq^{dagger} . M
-            call utility_zgemm(tmp_cdq,cdq(:,:,nkp),'C',m_matrix(:,:,nn,nkp),'N',num_wann)
+            call utility_zgemm(cdq(:,:,nkp),'C',m_matrix(:,:,nn,nkp),'N',tmp_cdq)
             ! cmtmp = tmp_cdq . cdq
-            call utility_zgemm(cmtmp,tmp_cdq,'N',cdq(:,:,nkp2),'N',num_wann)
+            call utility_zgemm(tmp_cdq,'N',cdq(:,:,nkp2),'N',cmtmp)
             m_matrix(:,:,nn,nkp) = cmtmp(:,:)
          enddo
       enddo
@@ -2100,7 +2100,7 @@ contains
          write_proj,have_disentangled,conv_tol,conv_window, &
          wannier_centres,write_xyz,wannier_spreads,omega_total, &
          omega_tilde,write_vdw_data
-    use w90_utility,    only : utility_frac_to_cart,utility_zgemm
+    use w90_utility,    only : utility_frac_to_cart,utility_zgemm,utility_zgemm_old
 
     implicit none
 
@@ -2352,7 +2352,11 @@ contains
 
        if (ldump) then
           uc_rot(:,:)=cmplx(ur_rot(:,:),0.0_dp,dp)
-          call  utility_zgemm(u_matrix,u0,'N',uc_rot,'N',num_wann)
+          !FIXME: 
+          ! u_matrix and u0 are 3-dimensional. 
+          ! Within the procedure, a shape of num_wann x num_wann is assumed. 
+          ! Is this really intended?
+          call  utility_zgemm_old(u_matrix,u0,'N',uc_rot,'N',num_wann)
           call param_write_chkpt('postdis')
        endif
 
@@ -2376,7 +2380,12 @@ contains
     end do
     ! update U
     uc_rot(:,:)=cmplx(ur_rot(:,:),0.0_dp,dp)
-    call  utility_zgemm(u_matrix,u0,'N',uc_rot,'N',num_wann)
+   
+    !FIXME: 
+    ! u_matrix and u0 are 3-dimensional. 
+    ! Within the procedure, a shape of num_wann x num_wann is assumed. 
+    ! Is this really intended?
+    call  utility_zgemm_old(u_matrix,u0,'N',uc_rot,'N',num_wann) 
 
     write(stdout,'(1x,a)') 'Final State'
     do iw=1,num_wann

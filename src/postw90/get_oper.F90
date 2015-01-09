@@ -1750,7 +1750,6 @@ endif !on_root
   !                                                          !
   !==========================================================!
 
-    use blas95, only             : gemm
     use w90_constants, only      : dp, cmplx_0
     use w90_postw90_common, only : v_matrix
     use w90_parameters, only     : num_wann, eigval

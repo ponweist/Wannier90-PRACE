@@ -594,7 +594,7 @@ return
        endif
 
 !       u_matrix(:,:,nkp)=matmul(cz,cvdag)
-       call utility_zgemm(u_matrix(:,:,nkp),cz,'N',cvdag,'N',num_wann)
+       call utility_zgemm(cz,'N',cvdag,'N',u_matrix(:,:,nkp))
 
        !
        ! CHECK UNITARITY
@@ -635,9 +635,9 @@ return
        do nn=1,nntot
           nkp2=nnlist(nkp,nn)
           ! cvdag = U^{dagger} . M   (use as workspace)
-          call utility_zgemm(cvdag,u_matrix(:,:,nkp),'C',m_matrix(:,:,nn,nkp),'N',num_wann)
+          call utility_zgemm(u_matrix(:,:,nkp),'C',m_matrix(:,:,nn,nkp),'N',cvdag)
           ! cz = cvdag . U
-          call utility_zgemm(cz,cvdag,'N',u_matrix(:,:,nkp2),'N',num_wann)
+          call utility_zgemm(cvdag,'N',u_matrix(:,:,nkp2),'N',cz)
           m_matrix(:,:,nn,nkp) = cz(:,:)
        end do
     end do
@@ -818,9 +818,9 @@ return
 
     do nn=1,nntot
        ! cvdag = U^{dagger} . M   (use as workspace)
-       call utility_zgemm(cvdag,u_matrix(:,:,1),'C',m_matrix(:,:,nn,1),'N',num_wann)
+       call utility_zgemm(u_matrix(:,:,1),'C',m_matrix(:,:,nn,1),'N',cvdag)
        ! cz = cvdag . U
-       call utility_zgemm(cz,cvdag,'N',u_matrix(:,:,1),'N',num_wann)
+       call utility_zgemm(cvdag,'N',u_matrix(:,:,1),'N',cz)
        m_matrix(:,:,nn,1) = cz(:,:)
     end do
     

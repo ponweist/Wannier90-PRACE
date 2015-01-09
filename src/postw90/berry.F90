@@ -770,12 +770,11 @@ module w90_berry
   !=========================================================!
 
     use w90_constants, only      : dp,cmplx_0,cmplx_i
-    use w90_utility, only        : utility_re_tr_prod,utility_im_tr_prod
+    use w90_utility, only        : utility_re_tr_prod,utility_im_tr_prod,utility_zgemm
     use w90_parameters, only     : num_wann,nfermi
     use w90_postw90_common, only : fourier_R_to_k_vec,fourier_R_to_k
     use w90_wan_ham, only        : get_eig_UU_HH_JJlist,get_occ_mat_list
     use w90_get_oper, only       : AA_R,BB_R,CC_R
-    use blas95, only             : gemm
 
     ! Arguments
     !
@@ -870,8 +869,8 @@ module w90_berry
       ! Trace formula for -2Im[h], Eq.(56) LVTS12
       !
       do i=1,3
-        call gemm(HH, AA(:,:,alpha_A(i)), tmp(:,:,1))
-        call gemm(HH, OOmega(:,:,i), tmp(:,:,3))
+        call utility_zgemm(HH, 'N', AA(:,:,alpha_A(i)), 'N', tmp(:,:,1))
+        call utility_zgemm(HH, 'N', OOmega(:,:,i), 'N', tmp(:,:,3))
         !
         ! LLambda_ij [Eq. (37) LVTS12] expressed as a pseudovector
         tmp(:,:,2) = cmplx_i*(CC(:,:,alpha_A(i),beta_A(i))&
@@ -882,8 +881,8 @@ module w90_berry
           ! J0 terms for -2Im[g] and -2Im[h]
           !
           ! tmp(:,:,5) = HH . AA(:,:,alpha_A(i)) . f_list(:,:,ife) . AA(:,:,beta_A(i))
-          call gemm(tmp(:,:,1), f_list(:,:,ife),   tmp(:,:,4))
-          call gemm(tmp(:,:,4), AA(:,:,beta_A(i)), tmp(:,:,5))
+          call utility_zgemm(tmp(:,:,1), 'N', f_list(:,:,ife), 'N', tmp(:,:,4))
+          call utility_zgemm(tmp(:,:,4), 'N', AA(:,:,beta_A(i)), 'N', tmp(:,:,5))
 
           s = 2.0_dp * utility_im_tr_prod(f_list(:,:,ife), tmp(:,:,5));
           img_k_list(1,i,ife) = utility_re_tr_prod(f_list(:,:,ife), tmp(:,:,2)) - s
@@ -894,7 +893,7 @@ module w90_berry
           !
           ! tmp(:,:,1) = HH . AA(:,:,alpha_A(i))
           ! tmp(:,:,4) = HH . JJm_list(:,:,ife,alpha_A(i))
-          call gemm(HH, JJm_list(:,:,ife,alpha_A(i)), tmp(:,:,4))
+          call utility_zgemm(HH, 'N', JJm_list(:,:,ife,alpha_A(i)), 'N', tmp(:,:,4))
 
           img_k_list(2,i,ife) = -2.0_dp * &
           ( &
@@ -912,8 +911,8 @@ module w90_berry
           !
           ! tmp(:,:,4) = JJm_list(:,:,ife,alpha_A(i)) . HH
           ! tmp(:,:,5) = HH . JJm_list(:,:,ife,alpha_A(i))
-          call gemm(JJm_list(:,:,ife,alpha_A(i)), HH, tmp(:,:,4))
-          call gemm(HH, JJm_list(:,:,ife,alpha_A(i)), tmp(:,:,5))
+          call utility_zgemm(JJm_list(:,:,ife,alpha_A(i)), 'N', HH, 'N', tmp(:,:,4))
+          call utility_zgemm(HH, 'N', JJm_list(:,:,ife,alpha_A(i)), 'N', tmp(:,:,5))
 
           img_k_list(3,i,ife) = -2.0_dp * &
              utility_im_tr_prod(tmp(:,:,4), JJp_list(:,:,ife,beta_A(i)))
